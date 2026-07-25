@@ -303,14 +303,23 @@ local function GetWeaponIcon(name)
     end
 
     local ok, icon = pcall(function()
-        local Database = ReplicatedStorage:FindFirstChild('Database')
-        if not Database then return nil end
+        -- BloxStrike: ReplicatedStorage.Database.Custom.Weapons[name].Icon
+        local Database = ReplicatedStorage:FindFirstChild('Database') or ReplicatedStorage:FindFirstChild('database')
+        if not Database then
+            return nil
+        end
         local Custom = Database:FindFirstChild('Custom')
-        if not Custom then return nil end
+        if not Custom then
+            return nil
+        end
         local Weapons = Custom:FindFirstChild('Weapons')
-        if not Weapons then return nil end
+        if not Weapons then
+            return nil
+        end
         local data = Weapons:FindFirstChild(name)
-        if not data then return nil end
+        if not data then
+            return nil
+        end
 
         local mod = WeaponModuleCache[name]
         if mod == nil then
@@ -370,8 +379,9 @@ end
 
 local function GetWeaponIconPixelSize(name, distance, maxHeight)
     maxHeight = maxHeight or 14
-    -- Closer = smaller icon; farther scales up slightly (capped)
-    local distScale = Clamp(distance / 85, 0.48, 1.0)
+    -- Bucket distance so icon size does not thrash every frame (jitter)
+    local DistBucket = Floor((tonumber(distance) or 0) / 12) * 12
+    local distScale = Clamp(DistBucket / 85, 0.48, 1.0)
     local aspectW, aspectH = GetWeaponIconAspect(name)
     local h = Floor(maxHeight * distScale * aspectH + 0.5)
     local w = Floor(h * aspectW + 0.5)
@@ -507,6 +517,8 @@ local function SetTwoColorSequence(Gradient, Cfg)
     })
 end
 
+local StaticGradientCache = setmetatable({}, { __mode = 'k' })
+
 local function ApplyScrollingGradient(Gradient, Cfg, BaseRotation, TransparencyA, TransparencyB)
     Gradient.Rotation = BaseRotation or 0
     Gradient.Offset = Vector2.new(0, 0)
@@ -530,11 +542,20 @@ local function ApplyTwoColorGradient(Gradient, Cfg, BaseRotation, TransparencyA,
     BaseRotation = BaseRotation or 0
 
     if not Cfg.Animate then
-        SetTwoColorSequence(Gradient, Cfg)
-        Gradient.Rotation = BaseRotation
-        Gradient.Offset = Vector2.new(0, 0)
+        local Color1 = GetCfgColor1(Cfg, White)
+        local Color2 = GetCfgColor2(Cfg, White)
+        local Prev = StaticGradientCache[Gradient]
+        if not Prev or Prev.C1 ~= Color1 or Prev.C2 ~= Color2 or Prev.Rot ~= BaseRotation then
+            SetTwoColorSequence(Gradient, Cfg)
+            Gradient.Rotation = BaseRotation
+            Gradient.Offset = Vector2.new(0, 0)
+            StaticGradientCache[Gradient] = { C1 = Color1, C2 = Color2, Rot = BaseRotation }
+        end
         return
     end
+
+    -- Animating — drop static cache so a later static pass re-applies
+    StaticGradientCache[Gradient] = nil
 
     local Mode = Cfg.Mode or 'Scroll'
 
@@ -989,8 +1010,10 @@ local EspLibrary = {
             ['Color1'] = Color3.fromRGB(255, 0, 0), -- Main fill
             ['Color2'] = Color3.fromRGB(255, 255, 255), -- Glow / XRay
             ['GlowEnabled'] = true,
-            ['Transparency'] = 0.5, -- fill transparency (0 solid â†’ 1 invisible)
-            ['GlowTransparency'] = 0, -- glow transparency (0 solid â†’ 1 invisible; 0 uses XRay -1)
+            ['Transparency'] = 0.5, -- fill transparency (0 solid → 1 invisible)
+            ['GlowTransparency'] = 0, -- glow transparency (0 solid → 1 invisible; ~0 uses XRay -1)
+            ['GlowStrength'] = 5, -- color boost multiplier for glow adorn
+            ['GlowSize'] = 0.03, -- glow adorn size offset (studs)
             ['Animate'] = false,
             ['Mode'] = 'None',
             ['AnimSpeed'] = 1,
@@ -1448,12 +1471,17 @@ local function GetAnimatedChamsColors(Cfg)
     return Main:Lerp(Glow, Phase), Glow:Lerp(Main, Phase)
 end
 
-local function SetAdornChamsColors(Character, MainColor, GlowColor, FillTrans, GlowTrans)
+local function SetAdornChamsColors(Character, MainColor, GlowColor, FillTrans, GlowTrans, GlowStrength)
     if not Character then
         return
     end
 
-    local GlowBoost = Color3.new(GlowColor.R * 5, GlowColor.G * 5, GlowColor.B * 5)
+    local Strength = Clamp(tonumber(GlowStrength) or 5, 0.5, 15)
+    local GlowBoost = Color3.new(
+        math.min(GlowColor.R * Strength, 5),
+        math.min(GlowColor.G * Strength, 5),
+        math.min(GlowColor.B * Strength, 5)
+    )
     if FillTrans == nil then FillTrans = 0.5 end
     if GlowTrans == nil then GlowTrans = -1 end
 
@@ -1490,7 +1518,7 @@ local function ResolveGlowTransparency(GlowOpacityOrTrans)
     return Clamp(t, 0, 1)
 end
 
-local function ApplyAdornChamsToCharacter(Character, MainColor, GlowColor, Trans, GlowEnabled, GlowTrans)
+local function ApplyAdornChamsToCharacter(Character, MainColor, GlowColor, Trans, GlowEnabled, GlowTrans, GlowStrength, GlowSize)
     if not Character then
         return
     end
@@ -1503,7 +1531,15 @@ local function ApplyAdornChamsToCharacter(Character, MainColor, GlowColor, Trans
     end
     GlowTrans = ResolveGlowTransparency(GlowTrans)
 
-    local GlowBoost = Color3.new(GlowColor.R * 5, GlowColor.G * 5, GlowColor.B * 5)
+    local Strength = Clamp(tonumber(GlowStrength) or 5, 0.5, 15)
+    local SizePad = Clamp(tonumber(GlowSize) or 0.03, 0.005, 0.12)
+    local GlowBoost = Color3.new(
+        math.min(GlowColor.R * Strength, 5),
+        math.min(GlowColor.G * Strength, 5),
+        math.min(GlowColor.B * Strength, 5)
+    )
+    local GlowPad = Vec3(SizePad, SizePad, SizePad)
+    local FillPad = Vec3(SizePad * 0.65, SizePad * 0.65, SizePad * 0.65)
 
     local XRayShading = nil
     pcall(function()
@@ -1527,7 +1563,7 @@ local function ApplyAdornChamsToCharacter(Character, MainColor, GlowColor, Trans
                 GlowBoost,
                 GlowTrans,
                 IsHead and 10 or 9,
-                Vec3(0.03, 0.03, 0.03),
+                GlowPad,
                 { Shading = XRayShading, Name = 'ChamsGlow' }
             )
         end
@@ -1538,7 +1574,7 @@ local function ApplyAdornChamsToCharacter(Character, MainColor, GlowColor, Trans
             MainColor,
             Trans,
             10,
-            Vec3(0.02, 0.02, 0.02),
+            FillPad,
             { Name = 'ChamsFill' }
         )
     end
@@ -1599,21 +1635,29 @@ function EspLibrary:SetupChams(Data, Character)
     local Config = Table['Chams']
     local GlowEnabled = Config.GlowEnabled ~= false
     local MainColor, GlowColor = GetAnimatedChamsColors(Config)
+    local FillTrans = Config.Transparency or 0.5
+    local GlowTrans = ResolveGlowTransparency(Config.GlowTransparency)
+    local GlowStrength = Config.GlowStrength or 5
+    local GlowSize = Config.GlowSize or 0.03
     ApplyAdornChamsToCharacter(
         Character,
         MainColor,
         GlowColor,
-        Config.Transparency or 0.5,
+        FillTrans,
         GlowEnabled,
-        Config.GlowTransparency
+        GlowTrans,
+        GlowStrength,
+        GlowSize
     )
 
     Data['Chams'] = {
         Adorn = true,
         Character = Character,
         GlowEnabled = GlowEnabled,
-        FillTrans = Config.Transparency or 0.5,
-        GlowTrans = ResolveGlowTransparency(Config.GlowTransparency),
+        FillTrans = FillTrans,
+        GlowTrans = GlowTrans,
+        GlowStrength = GlowStrength,
+        GlowSize = GlowSize,
     }
     Data['LastChamsRefresh'] = os.clock()
 end
@@ -1650,6 +1694,10 @@ function EspLibrary:UpdateChams(Data)
     local ChamsData = Data['Chams']
     local Config = Table['Chams']
     local GlowEnabled = Config.GlowEnabled ~= false
+    local FillTrans = Config.Transparency or 0.5
+    local GlowTrans = ResolveGlowTransparency(Config.GlowTransparency)
+    local GlowStrength = Config.GlowStrength or 5
+    local GlowSize = Config.GlowSize or 0.03
 
     -- Live color animation without rebuilding adornments
     if ChamsData and ChamsData.Character and Config.Animate and Config.Mode and Config.Mode ~= 'None' then
@@ -1658,21 +1706,22 @@ function EspLibrary:UpdateChams(Data)
             ChamsData.Character,
             MainColor,
             GlowColor,
-            Config.Transparency or 0.5,
-            ResolveGlowTransparency(Config.GlowTransparency)
+            FillTrans,
+            GlowTrans,
+            GlowStrength
         )
     end
 
     if (Now - (Data['LastChamsCheck'] or 0)) >= 0.35 then
         Data['LastChamsCheck'] = Now
 
-        local FillTrans = Config.Transparency or 0.5
-        local GlowTrans = ResolveGlowTransparency(Config.GlowTransparency)
         local NeedsRefresh = not ChamsData
             or ChamsData.Character ~= Data['Character']
             or ChamsData.GlowEnabled ~= GlowEnabled
             or ChamsData.FillTrans ~= FillTrans
             or ChamsData.GlowTrans ~= GlowTrans
+            or ChamsData.GlowStrength ~= GlowStrength
+            or ChamsData.GlowSize ~= GlowSize
             or not Data['LastChamsRefresh']
             or (Now - Data['LastChamsRefresh']) >= CHAMS_REFRESH_INTERVAL
 
@@ -2103,32 +2152,69 @@ function EspLibrary:InitEsp(Data, HolderParent)
             BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         })
 
-        for i = 1, 8 do
-            Objects["Line_" .. i] = self:CreateObjects("Frame", {
-                Parent = Objects["CornerHolder"],
-                Visible = false,
-                BackgroundTransparency = 0,
-                Position = Dim2(0, 0, 0, 0),
-                Size = Dim2(0, 0, 0, 0),
-                BorderSizePixel = 0,
-                BorderColor3 = Color3.fromRGB(0, 0, 0),
-                BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-            })
-            self:CreateObjects("UIStroke", {
-                Parent = Objects["Line_" .. i],
-                Thickness = 1,
-                LineJoinMode = Enum.LineJoinMode.Miter,
-            })
-            Objects["LineGradient_" .. i] = self:CreateObjects("UIGradient", {
-                Parent = Objects["Line_" .. i],
-                Rotation = 0,
-                Color = ColorSequence.new({
-                    ColorSequenceKeypoint.new(0, White),
-                    ColorSequenceKeypoint.new(1, White),
-                }),
-                Transparency = NumSeq({NumKey(0, 0), NumKey(1, 0)}),
-            })
+        -- One connected L per corner (Path2D). Fallback: solid overlapping arms in one Frame.
+        local Path2D_Ok = false
+        do
+            local Ok, Inst = pcall(Instance.new, "Path2D")
+            if Ok and Inst then
+                Path2D_Ok = true
+                Inst:Destroy()
+            end
         end
+
+        for i = 1, 4 do
+            if Path2D_Ok then
+                local Outline = Instance.new("Path2D")
+                Outline.Name = "CornerOutline_" .. i
+                Outline.Thickness = 3
+                Outline.Color3 = Color3.fromRGB(0, 0, 0)
+                Outline.Visible = false
+                Outline.ZIndex = 1
+                Outline.Parent = Objects["CornerHolder"]
+                Objects["CornerOutline_" .. i] = Outline
+
+                local Path = Instance.new("Path2D")
+                Path.Name = "CornerPath_" .. i
+                Path.Thickness = 1
+                Path.Color3 = White
+                Path.Visible = false
+                Path.ZIndex = 2
+                Path.Parent = Objects["CornerHolder"]
+                Objects["CornerPath_" .. i] = Path
+            else
+                local Corner = self:CreateObjects("Frame", {
+                    Parent = Objects["CornerHolder"],
+                    Visible = false,
+                    BackgroundTransparency = 1,
+                    BorderSizePixel = 0,
+                    Size = Dim2(0.3, 0, 0.3, 0),
+                    ZIndex = 2,
+                })
+                Objects["Corner_" .. i] = Corner
+
+                -- Single visual L: two solid arms that share the corner pixel (no separate strokes)
+                Objects["CornerH_" .. i] = self:CreateObjects("Frame", {
+                    Parent = Corner,
+                    BackgroundTransparency = 0,
+                    BorderSizePixel = 0,
+                    BackgroundColor3 = White,
+                    Size = Dim2(1, 0, 0, 1),
+                    Position = Dim2(0, 0, 0, 0),
+                    ZIndex = 2,
+                })
+                Objects["CornerV_" .. i] = self:CreateObjects("Frame", {
+                    Parent = Corner,
+                    BackgroundTransparency = 0,
+                    BorderSizePixel = 0,
+                    BackgroundColor3 = White,
+                    Size = Dim2(0, 1, 1, 0),
+                    Position = Dim2(0, 0, 0, 0),
+                    ZIndex = 2,
+                })
+            end
+        end
+
+        Objects["UsePath2DCorners"] = Path2D_Ok
 
         -- World-space 3D box (SelectionBox)
         Objects["Box3D"] = Instance.new("SelectionBox")
@@ -2509,16 +2595,90 @@ function EspLibrary:InitEsp(Data, HolderParent)
     self:ApplyFontToObjects(Objects)
 end
 
-local CornerLayout = {
-    {Dim2(0, -1, 0, -1), Dim2(0.3, 0, 0, 1), NewVector2(0, 0), 0},
-    {Dim2(0, -1, 0, -1), Dim2(0, 1, 0.3, 0), NewVector2(0, 0), 180},
-    {Dim2(1, 1, 0, -1), Dim2(0.3, 0, 0, 1), NewVector2(1, 0), 0},
-    {Dim2(1, 1, 0, -1), Dim2(0, 1, 0.3, 0), NewVector2(1, 0), 180},
-    {Dim2(0, -1, 1, 1), Dim2(0.3, 0, 0, 1), NewVector2(0, 1), 0},
-    {Dim2(0, -1, 1, 1), Dim2(0, 1, 0.3, 0), NewVector2(0, 1), -180},
-    {Dim2(1, 1, 1, 1), Dim2(0.3, 0, 0, 1), NewVector2(1, 1), 0},
-    {Dim2(1, 1, 1, 1), Dim2(0, 1, 0.3, 0), NewVector2(1, 1), -180},
+-- Sharp L corners as one polyline each (scale relative to CornerHolder)
+local Zero_Tangent = UDim2.new(0, 0, 0, 0)
+local function Corner_Point(X_Scale, X_Off, Y_Scale, Y_Off)
+    local Pos = UDim2.new(X_Scale, X_Off, Y_Scale, Y_Off)
+    if typeof(Path2DControlPoint) == 'function' or (type(Path2DControlPoint) == 'table' and Path2DControlPoint.new) then
+        return Path2DControlPoint.new(Pos, Zero_Tangent, Zero_Tangent)
+    end
+    return Pos
+end
+
+local function Build_Corner_Points(Index, Arm)
+    Arm = Arm or 0.28
+    if Index == 1 then -- top-left ┌
+        return {
+            Corner_Point(0, 0, Arm, 0),
+            Corner_Point(0, 0, 0, 0),
+            Corner_Point(Arm, 0, 0, 0),
+        }
+    elseif Index == 2 then -- top-right ┐
+        return {
+            Corner_Point(1 - Arm, 0, 0, 0),
+            Corner_Point(1, 0, 0, 0),
+            Corner_Point(1, 0, Arm, 0),
+        }
+    elseif Index == 3 then -- bottom-left └
+        return {
+            Corner_Point(0, 0, 1 - Arm, 0),
+            Corner_Point(0, 0, 1, 0),
+            Corner_Point(Arm, 0, 1, 0),
+        }
+    end
+    -- bottom-right ┘
+    return {
+        Corner_Point(1 - Arm, 0, 1, 0),
+        Corner_Point(1, 0, 1, 0),
+        Corner_Point(1, 0, 1 - Arm, 0),
+    }
+end
+
+-- Frame fallback: one L unit per corner (arms share the corner, no outline strokes)
+local CornerFrameLayout = {
+    { -- TL
+        Pos = Dim2(0, 0, 0, 0), Anchor = NewVector2(0, 0),
+        H = Dim2(1, 0, 0, 1), HP = Dim2(0, 0, 0, 0), HA = NewVector2(0, 0),
+        V = Dim2(0, 1, 1, 0), VP = Dim2(0, 0, 0, 0), VA = NewVector2(0, 0),
+    },
+    { -- TR
+        Pos = Dim2(1, 0, 0, 0), Anchor = NewVector2(1, 0),
+        H = Dim2(1, 0, 0, 1), HP = Dim2(0, 0, 0, 0), HA = NewVector2(0, 0),
+        V = Dim2(0, 1, 1, 0), VP = Dim2(1, 0, 0, 0), VA = NewVector2(1, 0),
+    },
+    { -- BL
+        Pos = Dim2(0, 0, 1, 0), Anchor = NewVector2(0, 1),
+        H = Dim2(1, 0, 0, 1), HP = Dim2(0, 0, 1, 0), HA = NewVector2(0, 1),
+        V = Dim2(0, 1, 1, 0), VP = Dim2(0, 0, 0, 0), VA = NewVector2(0, 0),
+    },
+    { -- BR
+        Pos = Dim2(1, 0, 1, 0), Anchor = NewVector2(1, 1),
+        H = Dim2(1, 0, 0, 1), HP = Dim2(0, 0, 1, 0), HA = NewVector2(0, 1),
+        V = Dim2(0, 1, 1, 0), VP = Dim2(1, 0, 0, 0), VA = NewVector2(1, 0),
+    },
 }
+
+local function Hide_Corner_Objects(Objects)
+    if Objects['UsePath2DCorners'] then
+        for i = 1, 4 do
+            local Path = Objects['CornerPath_' .. i]
+            local Outline = Objects['CornerOutline_' .. i]
+            if Path and Path.Visible then
+                Path.Visible = false
+            end
+            if Outline and Outline.Visible then
+                Outline.Visible = false
+            end
+        end
+    else
+        for i = 1, 4 do
+            local Corner = Objects['Corner_' .. i]
+            if Corner and Corner.Visible then
+                Corner.Visible = false
+            end
+        end
+    end
+end
 
 function EspLibrary:CalculateBox(Data, ViewportCamera, ViewportFrame)
     local Cam = ViewportCamera or GetCamera()
@@ -3308,11 +3468,7 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
             if Objects['CornerHolder'] and Objects['CornerHolder'].Visible then
                 Objects['CornerHolder'].Visible = false
             end
-            for i = 1, 8 do
-                if Objects['Line_' .. i] and Objects['Line_' .. i].Visible then
-                    Objects['Line_' .. i].Visible = false
-                end
-            end
+            Hide_Corner_Objects(Objects)
 
             local Box3D = Objects['Box3D']
             if Box3D then
@@ -3343,19 +3499,58 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
             end
 
             local GradCfg = BoxesCfg['Gradients']
+            local CornerColor = GetCfgColor1(GradCfg, White)
+            local Arm = 0.28
 
-            for i = 1, 8 do
-                local Line = Objects['Line_' .. i]
-                local LayoutEntry = CornerLayout[i]
-                local LPos, LSize, LAnchor, LRot = LayoutEntry[1], LayoutEntry[2], LayoutEntry[3], LayoutEntry[4]
-
-                Line.Position = LPos
-                Line.Size = LSize
-                Line.AnchorPoint = LAnchor
-                Line.Rotation = LRot
-                Line.BackgroundTransparency = 0
-                Line.Visible = true
-                ApplyTwoColorGradient(Objects['LineGradient_' .. i], GradCfg, 0)
+            if Objects['UsePath2DCorners'] then
+                for i = 1, 4 do
+                    local Path = Objects['CornerPath_' .. i]
+                    local Outline = Objects['CornerOutline_' .. i]
+                    local Points = Build_Corner_Points(i, Arm)
+                    if Outline then
+                        pcall(function()
+                            Outline:SetControlPoints(Points)
+                        end)
+                        Outline.Color3 = Color3.fromRGB(0, 0, 0)
+                        Outline.Thickness = 3
+                        Outline.Visible = true
+                    end
+                    if Path then
+                        pcall(function()
+                            Path:SetControlPoints(Points)
+                        end)
+                        Path.Color3 = CornerColor
+                        Path.Thickness = 1
+                        Path.Visible = true
+                    end
+                end
+            else
+                for i = 1, 4 do
+                    local Corner = Objects['Corner_' .. i]
+                    local Layout = CornerFrameLayout[i]
+                    local H = Objects['CornerH_' .. i]
+                    local V = Objects['CornerV_' .. i]
+                    if Corner and Layout then
+                        Corner.Position = Layout.Pos
+                        Corner.AnchorPoint = Layout.Anchor
+                        Corner.Size = Dim2(Arm, 0, Arm, 0)
+                        Corner.Visible = true
+                    end
+                    if H and Layout then
+                        H.Size = Layout.H
+                        H.Position = Layout.HP
+                        H.AnchorPoint = Layout.HA
+                        H.BackgroundColor3 = CornerColor
+                        H.Visible = true
+                    end
+                    if V and Layout then
+                        V.Size = Layout.V
+                        V.Position = Layout.VP
+                        V.AnchorPoint = Layout.VA
+                        V.BackgroundColor3 = CornerColor
+                        V.Visible = true
+                    end
+                end
             end
         else
             if Objects['Box3D'] then
@@ -3365,11 +3560,7 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
             if Objects['CornerHolder'].Visible then
                 Objects['CornerHolder'].Visible = false
             end
-            for i = 1, 8 do
-                if Objects['Line_' .. i].Visible then
-                    Objects['Line_' .. i].Visible = false
-                end
-            end
+            Hide_Corner_Objects(Objects)
 
             if not Objects['BoxOutlineHolder'].Visible then
                 Objects['BoxOutlineHolder'].Visible = true
@@ -3420,11 +3611,7 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
             Objects['CornerHolder'].Visible = false
         end
 
-        for i = 1, 8 do
-            if Objects['Line_' .. i].Visible then
-                Objects['Line_' .. i].Visible = false
-            end
-        end
+        Hide_Corner_Objects(Objects)
     end
 
     if TextsCfg['Name']['Enabled'] then
@@ -3730,7 +3917,11 @@ do
         end
 
         LoopsStarted = true
-        Table['RefreshRate'] = 240
+        if type(Table['RefreshRate']) ~= 'number' or Table['RefreshRate'] <= 0 then
+            Table['RefreshRate'] = 120
+        else
+            Table['RefreshRate'] = Clamp(Table['RefreshRate'], 30, 240)
+        end
 
         EspLibrary:CreateThreads('ChamsRefresh', RunService.Heartbeat, function()
             if not RuntimeActive or not Table['Enabled'] then
@@ -3746,6 +3937,7 @@ do
         end)
 
         -- After Camera: uses this frame's poses so ESP never lags behind enemies
+        local LastHeavyTick = 0
         RunService:BindToRenderStep(ESP_RENDER_BIND, Enum.RenderPriority.Camera.Value + 1, function()
             if not RuntimeActive then
                 return
@@ -3771,10 +3963,18 @@ do
                 CameraPosition = Cam.CFrame.Position
             end
 
+            -- Chams / heavy extras at RefreshRate; boxes/text stay every frame for smoothness
+            local HeavyInterval = 1 / Table['RefreshRate']
+            local DoHeavy = (Now - LastHeavyTick) >= HeavyInterval
+            if DoHeavy then
+                LastHeavyTick = Now
+            end
+
+            local ChamsOn = Table['Chams']['Enabled'] == true
             for Player, Data in pairs(EspLibrary['Cache']) do
                 if Player ~= LocalPlayer then
                     EspLibrary:Update(Player, Data)
-                    if Table['Chams']['Enabled'] then
+                    if ChamsOn and DoHeavy then
                         EspLibrary:UpdateChams(Data)
                     end
                 end
