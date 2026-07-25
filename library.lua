@@ -368,6 +368,22 @@ local function Register_Option(Flag, Type, Api)
 	}
 end
 
+-- Set a registered option (or raw Flag) without relying on callers knowing the API.
+-- Fire = false skips control callbacks (used when applying presets / loading configs).
+function Library:Set_Flag(Flag, Value, Fire)
+	if not Flag then
+		return
+	end
+	local Opt = Library.Options[Flag]
+	if Opt and Opt.Api and Opt.Api.Set then
+		pcall(function()
+			Opt.Api:Set(Value, Fire)
+		end)
+		return
+	end
+	Library.Flags[Flag] = Value
+end
+
 local function Config_Path(Name)
 	Name = tostring(Name or "default"):gsub("[^%w%-%_]", "")
 	if Name == "" then
@@ -418,6 +434,7 @@ local function Serialize_Value(Type, Value)
 			return {
 				Key = Value.Key or "Unknown",
 				Mode = Value.Mode or "Toggle",
+				Active = Value.Active == true,
 			}
 		end
 		return { Key = "Unknown", Mode = "Toggle" }
@@ -489,6 +506,7 @@ function Library:Save_Config(Name)
 		__name = Clean,
 		flags = {},
 	}
+	-- Prefer live Option Api:Get values (toggles, colors, keybinds, etc.)
 	for Flag, Opt in pairs(Library.Options) do
 		if Flag ~= "config_list" then
 			local Ok, Value = pcall(function()
@@ -496,6 +514,20 @@ function Library:Save_Config(Name)
 			end)
 			if Ok then
 				Data.flags[Flag] = Serialize_Value(Opt.Type, Value)
+			end
+		end
+	end
+	-- Also persist any Flags that never registered an Option (or got out of sync)
+	for Flag, Value in pairs(Library.Flags) do
+		if Flag ~= "config_list" and Data.flags[Flag] == nil then
+			if Is_Color3(Value) then
+				Data.flags[Flag] = Serialize_Value("Color", Value)
+			elseif Type_Of(Value) == "table" and Value.Key and Value.Mode then
+				Data.flags[Flag] = Serialize_Value("Keybind", Value)
+			elseif Type_Of(Value) == "table" then
+				Data.flags[Flag] = Serialize_Value("MultiDropdown", Value)
+			else
+				Data.flags[Flag] = Value
 			end
 		end
 	end
@@ -534,26 +566,47 @@ function Library:Load_Config(Name)
 		return false, "invalid config"
 	end
 	local Flags = Data.flags or Data
+	local Loaded_Options = {}
+	Library._Loading_Config = true
 	for Flag, Value in pairs(Flags) do
 		if Flag ~= "__eggtech" and Flag ~= "__name" and Flag ~= "config_list" then
 			local Opt = Library.Options[Flag]
 			if Opt and Opt.Api and Opt.Api.Set then
 				local Val = Deserialize_Value(Opt.Type, Value)
 				pcall(function()
-					Opt.Api:Set(Val)
+					-- First pass is silent so every value exists before any callback runs.
+					Opt.Api:Set(Val, false)
 				end)
+				Loaded_Options[#Loaded_Options + 1] = Opt
+			else
+				-- Raw flag (or option missing) — deserialize color tables
+				if Type_Of(Value) == "table" and Value.R and Value.G and Value.B and not Value.Key then
+					Library.Flags[Flag] = Deserialize_Value("Color", Value)
+				else
+					Library.Flags[Flag] = Value
+				end
 			end
 		end
 	end
+	-- Second pass fires each control callback against the fully loaded state.
+	for _, Opt in ipairs(Loaded_Options) do
+		pcall(function()
+			Opt.Api:Set(Opt.Api:Get(), true)
+		end)
+	end
 	if Library.Options.config_name and Library.Options.config_name.Api then
 		pcall(function()
-			Library.Options.config_name.Api:Set(Clean)
+			Library.Options.config_name.Api:Set(Clean, false)
 		end)
 	end
 	if Library.Options.config_list and Library.Options.config_list.Api then
 		pcall(function()
-			Library.Options.config_list.Api:Set(Clean)
+			Library.Options.config_list.Api:Set(Clean, false)
 		end)
+	end
+	Library._Loading_Config = false
+	if Type_Of(Library.On_Config_Loaded) == "function" then
+		pcall(Library.On_Config_Loaded, Clean)
 	end
 	return true, Clean
 end
@@ -1604,8 +1657,8 @@ local function Build_Controls(Container, Content)
 		end)
 
 		local Api = {}
-		function Api:Set(Val)
-			Set(Val)
+		function Api:Set(Val, Fire)
+			Set(Val, Fire)
 		end
 		function Api:Get()
 			return State
@@ -1896,8 +1949,8 @@ local function Build_Controls(Container, Content)
 		end)
 
 		local Api = {}
-		function Api:Set(Val)
-			Set(Val, true, false)
+		function Api:Set(Val, Fire)
+			Set(Val, Fire, false)
 		end
 		function Api:Get()
 			return Value
@@ -2157,13 +2210,15 @@ local function Build_Controls(Container, Content)
 		end)
 
 		local Api = {}
-		function Api:Set(T)
+		function Api:Set(T, Fire)
 			Box.Text = tostring(T or "")
 			if Flag then
 				Library.Flags[Flag] = Box.Text
 			end
 			Sync_Display(true)
-			Callback(Box.Text)
+			if Fire ~= false then
+				Callback(Box.Text)
+			end
 		end
 		function Api:Get()
 			return Box.Text
@@ -2422,7 +2477,7 @@ local function Build_Controls(Container, Content)
 		end)
 
 		local Api = {}
-		function Api:Set(Val)
+		function Api:Set(Val, Fire)
 			if Multi then
 				Selected = {}
 				for _, V in ipairs(Val or {}) do
@@ -2441,10 +2496,14 @@ local function Build_Controls(Container, Content)
 						end
 					end
 					Library.Flags[Flag] = Out
-					Callback(Out)
+					if Fire ~= false then
+						Callback(Out)
+					end
 				else
 					Library.Flags[Flag] = Selected
-					Callback(Selected)
+					if Fire ~= false then
+						Callback(Selected)
+					end
 				end
 			end
 			if Open then
@@ -2945,7 +3004,7 @@ local function Build_Controls(Container, Content)
 		end)
 
 		local Api = {}
-		function Api:Set(C)
+		function Api:Set(C, Fire)
 			if Type_Of(C) == "string" then
 				local Hex = C:gsub("#", "")
 				if #Hex == 6 then
@@ -2969,7 +3028,9 @@ local function Build_Controls(Container, Content)
 			end
 			H, S, V = C:ToHSV()
 			Apply(false)
-			Callback(Color)
+			if Fire ~= false then
+				Callback(Color)
+			end
 		end
 		function Api:Get()
 			return Color
@@ -3342,7 +3403,7 @@ local function Build_Controls(Container, Content)
 				Set_Active(false)
 			end
 		end
-		function Api:Set(Data)
+		function Api:Set(Data, Fire)
 			if Type_Of(Data) == "table" then
 				if Data.Mode then
 					Mode = Data.Mode
@@ -3365,11 +3426,15 @@ local function Build_Controls(Container, Content)
 			elseif Type_Of(Data) == "boolean" then
 				Set_Active(Data)
 			end
+			if Fire == false then
+				-- still sync flag state for Hold/Toggle without firing extra side effects
+			end
 		end
 		function Api:Get()
 			return {
 				Key = Is_Bind(Current_Key) and Bind_Name(Current_Key) or "Unknown",
 				Mode = Mode,
+				Active = Active,
 			}
 		end
 		function Api:Get_Active()
