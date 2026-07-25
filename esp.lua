@@ -2229,9 +2229,10 @@ function EspLibrary:InitEsp(Data, HolderParent)
             LayoutOrder = 0,
             Visible = false,
             BackgroundTransparency = 0,
-            -- Inset 1px so UIStroke outer edges land on the same pixels as corner ESP
-            Position = Dim2(0, 0, 0, 1),
-            Size = Dim2(0, 1, 1, -2),
+            -- Full box has a 3px centered stroke (extends 1.5px past each edge).
+            -- A 1px health stroke on a H+2 frame at y=-1 has identical outer pixels.
+            Position = Dim2(0, 0, 0, -1),
+            Size = Dim2(0, 1, 1, 2),
             BorderSizePixel = 0,
             BorderColor3 = Color3.fromRGB(0, 0, 0),
             BackgroundColor3 = Color3.fromRGB(0, 0, 0),
@@ -3443,7 +3444,9 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
     end
 
     if BoxesEnabled then
-        local BoxType = BoxesCfg['Type']
+        -- Full 2D is the only box mode.
+        local BoxType = "2D"
+        BoxesCfg['Type'] = BoxType
 
         if BoxType == "3D" then
             if Objects['BoxOutlineHolder'] and Objects['BoxOutlineHolder'].Visible then
@@ -3622,7 +3625,7 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
         local HealthThickness = GetBarDisplayThickness(HealthCfg['Thickness'], Ratio)
 
         if Data['LastHealthDisplayThickness'] ~= HealthThickness then
-            Objects['HealthBarOutline'].Size = Dim2(0, HealthThickness, 1, -2)
+            Objects['HealthBarOutline'].Size = Dim2(0, HealthThickness, 1, 2)
             Data['LastHealthDisplayThickness'] = HealthThickness
         end
 
