@@ -1823,9 +1823,9 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Visible = true,
             BackgroundTransparency = 1,
             AnchorPoint = NewVector2(1, 0),
-            -- Exact same vertical span as the box / corner ESP (no ±2 overshoot)
-            Position = Dim2(0, -5, 0, 0),
-            Size = Dim2(0, 0, 1, 0),
+            -- 2px taller than box top and bottom (health bar span)
+            Position = Dim2(0, -5, 0, -2),
+            Size = Dim2(0, 0, 1, 4),
             BorderSizePixel = 0,
             BorderColor3 = Color3.fromRGB(0, 0, 0),
             BackgroundColor3 = Color3.fromRGB(255, 255, 255),
@@ -2080,7 +2080,7 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Parent = Objects["BoxGlow"],
             Visible = false,
             BackgroundTransparency = 1,
-            -- 3px black base behind a 1px colored stroke = 1px black outline + inline
+            -- Inset 1px; Border stroke draws the outer 1px black on TargetHolder edge
             Position = Dim2(0, 1, 0, 1),
             Size = Dim2(1, -2, 1, -2),
             BorderSizePixel = 0,
@@ -2091,7 +2091,8 @@ function EspLibrary:InitEsp(Data, HolderParent)
         Objects["BoxOutline"] = self:CreateObjects("UIStroke", {
             Parent = Objects["BoxOutlineHolder"],
             Color = Color3.fromRGB(0, 0, 0),
-            Thickness = 3,
+            Thickness = 1,
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
             LineJoinMode = Enum.LineJoinMode.Miter,
         })
 
@@ -2109,9 +2110,9 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Parent = Objects["BoxGlow"],
             Visible = false,
             BackgroundTransparency = 1,
-            -- 1px colored center; black base remains 1px outside and inside
-            Position = Dim2(0, 1, 0, 1),
-            Size = Dim2(1, -2, 1, -2),
+            -- Inset 2px; Border stroke = colored middle line
+            Position = Dim2(0, 2, 0, 2),
+            Size = Dim2(1, -4, 1, -4),
             BorderSizePixel = 0,
             BorderColor3 = Color3.fromRGB(0, 0, 0),
             BackgroundColor3 = Color3.fromRGB(255, 255, 255),
@@ -2121,6 +2122,7 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Parent = Objects["BoxInlineHolder"],
             Color = Color3.fromRGB(255, 255, 255),
             Thickness = 1,
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
             LineJoinMode = Enum.LineJoinMode.Miter,
         })
 
@@ -2132,6 +2134,26 @@ function EspLibrary:InitEsp(Data, HolderParent)
                 ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255)),
             }),
             Transparency = NumSeq({NumKey(0, 0), NumKey(1, 0)}),
+        })
+
+        Objects["BoxInnerOutlineHolder"] = self:CreateObjects("Frame", {
+            Parent = Objects["BoxGlow"],
+            Visible = false,
+            BackgroundTransparency = 1,
+            -- Inset 3px; Border stroke = 1px black inner edge
+            Position = Dim2(0, 3, 0, 3),
+            Size = Dim2(1, -6, 1, -6),
+            BorderSizePixel = 0,
+            BorderColor3 = Color3.fromRGB(0, 0, 0),
+            BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        })
+
+        Objects["BoxInnerOutline"] = self:CreateObjects("UIStroke", {
+            Parent = Objects["BoxInnerOutlineHolder"],
+            Color = Color3.fromRGB(0, 0, 0),
+            Thickness = 1,
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+            LineJoinMode = Enum.LineJoinMode.Miter,
         })
 
         Objects["BoxFill"] = self:CreateObjects("Frame", {
@@ -2256,7 +2278,7 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Visible = false,
             BackgroundTransparency = 0,
             Position = Dim2(0, 0, 0, 0),
-            -- Exact TargetHolder height (same as box). No UIStroke — it overshoots by 1px.
+            -- LeftHolder is already ±2 taller than box; bar fills that height.
             Size = Dim2(0, 3, 1, 0),
             BorderSizePixel = 0,
             BorderColor3 = Color3.fromRGB(0, 0, 0),
@@ -2264,7 +2286,7 @@ function EspLibrary:InitEsp(Data, HolderParent)
             ClipsDescendants = true,
         })
 
-        -- 1px black border drawn INSIDE the outline so outer height stays = box height
+        -- 1px black border inside (colored fill inset)
         self:CreateObjects("UIPadding", {
             Parent = Objects["HealthBarOutline"],
             PaddingTop = Dim(0, 1),
@@ -3486,6 +3508,9 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
             if Objects['BoxInlineHolder'] and Objects['BoxInlineHolder'].Visible then
                 Objects['BoxInlineHolder'].Visible = false
             end
+            if Objects['BoxInnerOutlineHolder'] and Objects['BoxInnerOutlineHolder'].Visible then
+                Objects['BoxInnerOutlineHolder'].Visible = false
+            end
             if Objects['BoxFill'] and Objects['BoxFill'].Visible then
                 Objects['BoxFill'].Visible = false
             end
@@ -3513,6 +3538,9 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
             end
             if Objects['BoxInlineHolder'].Visible then
                 Objects['BoxInlineHolder'].Visible = false
+            end
+            if Objects['BoxInnerOutlineHolder'] and Objects['BoxInnerOutlineHolder'].Visible then
+                Objects['BoxInnerOutlineHolder'].Visible = false
             end
 
             if not Objects['CornerHolder'].Visible then
@@ -3561,6 +3589,10 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
                 Objects['BoxInlineHolder'].Visible = true
             end
 
+            if Objects['BoxInnerOutlineHolder'] and not Objects['BoxInnerOutlineHolder'].Visible then
+                Objects['BoxInnerOutlineHolder'].Visible = true
+            end
+
             ApplyTwoColorGradient(Objects['BoxInlineGradient'], BoxesCfg['Gradients'], 0)
 
             if FillEnabled then
@@ -3591,6 +3623,10 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
 
         if Objects['BoxInlineHolder'].Visible then
             Objects['BoxInlineHolder'].Visible = false
+        end
+
+        if Objects['BoxInnerOutlineHolder'] and Objects['BoxInnerOutlineHolder'].Visible then
+            Objects['BoxInnerOutlineHolder'].Visible = false
         end
 
         if Objects['BoxFill'].Visible then
