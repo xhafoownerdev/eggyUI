@@ -4114,6 +4114,11 @@ function EspLibrary:IsEnemyPlayer(Player)
     return FighterBridge.IsEnemyPlayer(Player, Data)
 end
 
+function EspLibrary:GetEquippedWeaponName(Player)
+    local Data = (self['Cache'] and self['Cache'][Player]) or {}
+    return FighterBridge.GetEquippedWeaponName(Player, Data)
+end
+
 function EspLibrary:CreatePreview(ParentFrame, Options)
     Options = Options or {}
     local SyncFrame = Options.SyncFrame or ParentFrame
