@@ -855,7 +855,16 @@ local function Create_Animated_Title(Parent, Text_Size, Z)
 	})
 
 	local Count = math.max(#Animated, 1)
-	Connect(RunService.RenderStepped, function()
+	local Title_Acc = 0
+	Connect(RunService.Heartbeat, function(Dt)
+		Title_Acc += Dt or 0
+		if Title_Acc < (1 / 30) then
+			return
+		end
+		Title_Acc = 0
+		if not Holder.Parent or not Holder.Visible then
+			return
+		end
 		local Scroll = tick() * 0.12
 		for i, Label in ipairs(Animated) do
 			Label.TextColor3 = Sample_Gradient(Scroll + (i - 1) / Count)
@@ -1004,11 +1013,11 @@ Create("UIGradient", {
 })
 
 local Cursor_Grad_Scroll = 0
-Connect(RunService.RenderStepped, function(Dt)
+Connect(RunService.Heartbeat, function(Dt)
 	if not Library.Cursor_Enabled or not Cursor_Grad.Parent then
 		return
 	end
-	Cursor_Grad_Scroll = (Cursor_Grad_Scroll + Dt * 0.4) % 1
+	Cursor_Grad_Scroll = (Cursor_Grad_Scroll + (Dt or 0) * 0.4) % 1
 	local T = Cursor_Grad_Scroll
 	local function Mix(A, B, Alpha)
 		return Color3.new(
@@ -1033,10 +1042,11 @@ local function Set_Custom_Cursor(Enabled)
 end
 
 Connect(RunService.RenderStepped, function()
-	if Library.Cursor_Enabled then
-		local Pos = Get_Mouse_Location()
-		Cursor_Root.Position = UDim2.new(0, Pos.X, 0, Pos.Y)
+	if not Library.Cursor_Enabled then
+		return
 	end
+	local Pos = Get_Mouse_Location()
+	Cursor_Root.Position = UDim2.new(0, Pos.X, 0, Pos.Y)
 end)
 
 Library.Set_Custom_Cursor = Set_Custom_Cursor
@@ -1101,7 +1111,16 @@ function Library:Create_Watermark(Options)
 	end
 
 	local Brand_Count = math.max(#Brand_Chars, 1)
-	Connect(RunService.RenderStepped, function()
+	local Brand_Acc = 0
+	Connect(RunService.Heartbeat, function(Dt)
+		Brand_Acc += Dt or 0
+		if Brand_Acc < (1 / 30) then
+			return
+		end
+		Brand_Acc = 0
+		if not Frame.Visible or not Frame.Parent then
+			return
+		end
 		local Scroll = tick() * 0.12
 		for i, Label in ipairs(Brand_Chars) do
 			Label.TextColor3 = Sample_Gradient(Scroll + (i - 1) / Brand_Count)
