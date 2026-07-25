@@ -936,7 +936,7 @@ local EspLibrary = {
                 ['Mode'] = 'Scroll',
                 ['AnimSpeed'] = 1,
                 ['FontSize'] = 9,
-                ['ShowText'] = true,
+                ['ShowText'] = false,
                 ['ShowIcon'] = true,
                 ['IconMaxHeight'] = 14,
             },
@@ -2057,9 +2057,8 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Parent = Objects["BoxGlow"],
             Visible = false,
             BackgroundTransparency = 1,
-            -- Inset by 1 so a centered 2px stroke's OUTER edge sits on TargetHolder edges
-            Position = Dim2(0, 1, 0, 1),
-            Size = Dim2(1, -2, 1, -2),
+            Position = Dim2(0, 0, 0, 0),
+            Size = Dim2(1, 0, 1, 0),
             BorderSizePixel = 0,
             BorderColor3 = Color3.fromRGB(0, 0, 0),
             BackgroundColor3 = Color3.fromRGB(255, 255, 255),
@@ -2067,7 +2066,7 @@ function EspLibrary:InitEsp(Data, HolderParent)
 
         Objects["BoxOutline"] = self:CreateObjects("UIStroke", {
             Parent = Objects["BoxOutlineHolder"],
-            Thickness = 2,
+            Thickness = 3,
             LineJoinMode = Enum.LineJoinMode.Miter,
         })
 
@@ -2085,9 +2084,8 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Parent = Objects["BoxGlow"],
             Visible = false,
             BackgroundTransparency = 1,
-            -- White inline sits 1px inside the outer black edge
-            Position = Dim2(0, 2, 0, 2),
-            Size = Dim2(1, -4, 1, -4),
+            Position = Dim2(0, -1, 0, -1),
+            Size = Dim2(1, 2, 1, 2),
             BorderSizePixel = 0,
             BorderColor3 = Color3.fromRGB(0, 0, 0),
             BackgroundColor3 = Color3.fromRGB(255, 255, 255),
@@ -2096,7 +2094,6 @@ function EspLibrary:InitEsp(Data, HolderParent)
         Objects["BoxInline"] = self:CreateObjects("UIStroke", {
             Parent = Objects["BoxInlineHolder"],
             Color = Color3.fromRGB(255, 255, 255),
-            Thickness = 1,
             LineJoinMode = Enum.LineJoinMode.Miter,
         })
 
@@ -2135,9 +2132,8 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Parent = Objects["BoxGlow"],
             Visible = false,
             BackgroundTransparency = 1,
-            -- Same rect as TargetHolder / health bar (not ±1 like inline stroke)
-            Position = Dim2(0, 0, 0, 0),
-            Size = Dim2(1, 0, 1, 0),
+            Position = Dim2(0, -1, 0, -1),
+            Size = Dim2(1, 2, 1, 2),
             BorderSizePixel = 0,
             BorderColor3 = Color3.fromRGB(0, 0, 0),
             BackgroundColor3 = Color3.fromRGB(255, 255, 255),
@@ -2232,22 +2228,26 @@ function EspLibrary:InitEsp(Data, HolderParent)
             LayoutOrder = 0,
             Visible = false,
             BackgroundTransparency = 0,
-            -- Exact TargetHolder height — no UIStroke (stroke was adding extra pixels past the box)
             Position = Dim2(0, 0, 0, 0),
-            Size = Dim2(0, 3, 1, 0),
+            Size = Dim2(0, 1, 1, 0),
             BorderSizePixel = 0,
             BorderColor3 = Color3.fromRGB(0, 0, 0),
             BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-            ClipsDescendants = true,
+            ClipsDescendants = false,
+        })
+
+        self:CreateObjects("UIStroke", {
+            Parent = Objects["HealthBarOutline"],
+            Thickness = 1,
+            LineJoinMode = Enum.LineJoinMode.Miter,
         })
 
         Objects["HealthBar"] = self:CreateObjects("Frame", {
             Parent = Objects["HealthBarOutline"],
             ZIndex = 6,
             AnchorPoint = NewVector2(0, 1),
-            -- 1px black L/R only; top/bottom match box outer pixels exactly
-            Position = Dim2(0, 1, 1, 0),
-            Size = Dim2(1, -2, 1, 0),
+            Position = Dim2(0, 0, 1, 0),
+            Size = Dim2(1, 0, 1, 0),
             BorderSizePixel = 0,
             BorderColor3 = Color3.fromRGB(0, 0, 0),
             BackgroundColor3 = Color3.fromRGB(255, 255, 255),
@@ -3622,7 +3622,7 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
         local HealthThickness = GetBarDisplayThickness(HealthCfg['Thickness'], Ratio)
 
         if Data['LastHealthDisplayThickness'] ~= HealthThickness then
-            Objects['HealthBarOutline'].Size = Dim2(0, math.max(HealthThickness + 2, 3), 1, 0)
+            Objects['HealthBarOutline'].Size = Dim2(0, HealthThickness, 1, 0)
             Data['LastHealthDisplayThickness'] = HealthThickness
         end
 
@@ -3638,7 +3638,7 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
             if not Objects['HealthBar'].Visible then
                 Objects['HealthBar'].Visible = true
             end
-            Objects['HealthBar'].Size = Dim2(1, -2, Ratio, 0)
+            Objects['HealthBar'].Size = Dim2(1, 0, Ratio, 0)
             ApplyHealthBarGradient(Objects['HealthBarGradient'], HealthCfg)
         elseif Objects['HealthBar'].Visible then
             Objects['HealthBar'].Visible = false
@@ -3893,9 +3893,10 @@ do
             ProcessChamsRefreshQueue(CHAMS_MAX_REFRESH_PER_FRAME)
         end)
 
-        -- After Camera: uses this frame's poses so ESP never lags behind enemies
+        -- After Camera (and after any camera overrides such as third person)
+        -- so projection uses this frame's final camera CFrame.
         local LastHeavyTick = 0
-        RunService:BindToRenderStep(ESP_RENDER_BIND, Enum.RenderPriority.Camera.Value + 1, function()
+        RunService:BindToRenderStep(ESP_RENDER_BIND, Enum.RenderPriority.Camera.Value + 5, function()
             if not RuntimeActive then
                 return
             end
