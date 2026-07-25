@@ -1802,8 +1802,9 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Visible = true,
             BackgroundTransparency = 1,
             AnchorPoint = NewVector2(1, 0),
-            Position = Dim2(0, -5, 0, -2),
-            Size = Dim2(0, 0, 1, 4),
+            -- Exact same vertical span as the box / corner ESP (no ±2 overshoot)
+            Position = Dim2(0, -5, 0, 0),
+            Size = Dim2(0, 0, 1, 0),
             BorderSizePixel = 0,
             BorderColor3 = Color3.fromRGB(0, 0, 0),
             BackgroundColor3 = Color3.fromRGB(255, 255, 255),
@@ -1814,8 +1815,8 @@ function EspLibrary:InitEsp(Data, HolderParent)
             AutomaticSize = Enum.AutomaticSize.X,
             Visible = true,
             BackgroundTransparency = 1,
-            Position = Dim2(1, 5, 0, -2),
-            Size = Dim2(0, 0, 1, 4),
+            Position = Dim2(1, 5, 0, 0),
+            Size = Dim2(0, 0, 1, 0),
             BorderSizePixel = 0,
             BorderColor3 = Color3.fromRGB(0, 0, 0),
             BackgroundColor3 = Color3.fromRGB(255, 255, 255),
@@ -2131,14 +2132,16 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Parent = Objects["BoxGlow"],
             Visible = false,
             BackgroundTransparency = 1,
-            Position = Dim2(0, -1, 0, -1),
-            Size = Dim2(1, 2, 1, 2),
+            -- Same rect as TargetHolder / health bar (not ±1 like inline stroke)
+            Position = Dim2(0, 0, 0, 0),
+            Size = Dim2(1, 0, 1, 0),
             BorderSizePixel = 0,
             BorderColor3 = Color3.fromRGB(0, 0, 0),
             BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         })
 
-        -- Corner elbows: same dual stroke as full box (black outline + colored inline), L only
+        -- Corner elbows: overlapping Out/In arms (no UIStroke) so H+V merge into
+        -- one continuous L — same dual stroke as full box, elbows only.
         for i = 1, 4 do
             local Corner = self:CreateObjects("Frame", {
                 Parent = Objects["CornerHolder"],
@@ -2150,22 +2153,33 @@ function EspLibrary:InitEsp(Data, HolderParent)
             })
             Objects["Corner_" .. i] = Corner
 
-            -- Colored arms with their own full black outline (UIStroke wraps every edge,
-            -- so the whole L reads as outline + inline exactly like the full box).
+            Objects["CornerOutH_" .. i] = self:CreateObjects("Frame", {
+                Parent = Corner,
+                BackgroundTransparency = 0,
+                BorderSizePixel = 0,
+                BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+                Size = Dim2(1, 0, 0, 3),
+                Position = Dim2(0, 0, 0, 0),
+                ZIndex = 2,
+            })
+            Objects["CornerOutV_" .. i] = self:CreateObjects("Frame", {
+                Parent = Corner,
+                BackgroundTransparency = 0,
+                BorderSizePixel = 0,
+                BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+                Size = Dim2(0, 3, 1, 0),
+                Position = Dim2(0, 0, 0, 0),
+                ZIndex = 2,
+            })
+
             Objects["CornerInH_" .. i] = self:CreateObjects("Frame", {
                 Parent = Corner,
                 BackgroundTransparency = 0,
                 BorderSizePixel = 0,
                 BackgroundColor3 = White,
-                Size = Dim2(1, 0, 0, 2),
-                Position = Dim2(0, 0, 0, 0),
+                Size = Dim2(1, -2, 0, 1),
+                Position = Dim2(0, 1, 0, 1),
                 ZIndex = 3,
-            })
-            self:CreateObjects("UIStroke", {
-                Parent = Objects["CornerInH_" .. i],
-                Thickness = 1,
-                Color = Color3.fromRGB(0, 0, 0),
-                LineJoinMode = Enum.LineJoinMode.Miter,
             })
             Objects["CornerInHGrad_" .. i] = self:CreateObjects("UIGradient", {
                 Parent = Objects["CornerInH_" .. i],
@@ -2182,15 +2196,9 @@ function EspLibrary:InitEsp(Data, HolderParent)
                 BackgroundTransparency = 0,
                 BorderSizePixel = 0,
                 BackgroundColor3 = White,
-                Size = Dim2(0, 2, 1, 0),
-                Position = Dim2(0, 0, 0, 0),
+                Size = Dim2(0, 1, 1, -2),
+                Position = Dim2(0, 1, 0, 1),
                 ZIndex = 3,
-            })
-            self:CreateObjects("UIStroke", {
-                Parent = Objects["CornerInV_" .. i],
-                Thickness = 1,
-                Color = Color3.fromRGB(0, 0, 0),
-                LineJoinMode = Enum.LineJoinMode.Miter,
             })
             Objects["CornerInVGrad_" .. i] = self:CreateObjects("UIGradient", {
                 Parent = Objects["CornerInV_" .. i],
@@ -2221,8 +2229,9 @@ function EspLibrary:InitEsp(Data, HolderParent)
             LayoutOrder = 0,
             Visible = false,
             BackgroundTransparency = 0,
-            Position = Dim2(0, 0, 0, 0),
-            Size = Dim2(0, 1, 1, 0),
+            -- Inset 1px so UIStroke outer edges land on the same pixels as corner ESP
+            Position = Dim2(0, 0, 0, 1),
+            Size = Dim2(0, 1, 1, -2),
             BorderSizePixel = 0,
             BorderColor3 = Color3.fromRGB(0, 0, 0),
             BackgroundColor3 = Color3.fromRGB(0, 0, 0),
@@ -2586,28 +2595,36 @@ function EspLibrary:InitEsp(Data, HolderParent)
     self:ApplyFontToObjects(Objects)
 end
 
--- Corner elbows: each corner is an L of two colored arms, each fully outlined by its
--- own black UIStroke. H/V arms share the corner so the outline wraps the entire L.
+-- Corner elbows: black Out* arms overlap at the joint, colored In* arms share the
+-- same corner pixel — reads as one continuous L (no per-arm UIStroke seams).
 local CornerElbowLayout = {
-    { -- TL ┌  (arms run along top + left edges)
+    { -- TL ┌
         Pos = Dim2(0, 0, 0, 0), Anchor = NewVector2(0, 0),
-        H = { Pos = Dim2(0, 0, 0, 0), Size = Dim2(1, 0, 0, 2), Anchor = NewVector2(0, 0) },
-        V = { Pos = Dim2(0, 0, 0, 0), Size = Dim2(0, 2, 1, 0), Anchor = NewVector2(0, 0) },
+        OutH = { Pos = Dim2(0, 0, 0, 0), Size = Dim2(1, 0, 0, 3), Anchor = NewVector2(0, 0) },
+        OutV = { Pos = Dim2(0, 0, 0, 0), Size = Dim2(0, 3, 1, 0), Anchor = NewVector2(0, 0) },
+        InH  = { Pos = Dim2(0, 1, 0, 1), Size = Dim2(1, -2, 0, 1), Anchor = NewVector2(0, 0) },
+        InV  = { Pos = Dim2(0, 1, 0, 1), Size = Dim2(0, 1, 1, -2), Anchor = NewVector2(0, 0) },
     },
-    { -- TR ┐  (top + right edges)
+    { -- TR ┐
         Pos = Dim2(1, 0, 0, 0), Anchor = NewVector2(1, 0),
-        H = { Pos = Dim2(0, 0, 0, 0), Size = Dim2(1, 0, 0, 2), Anchor = NewVector2(0, 0) },
-        V = { Pos = Dim2(1, 0, 0, 0), Size = Dim2(0, 2, 1, 0), Anchor = NewVector2(1, 0) },
+        OutH = { Pos = Dim2(0, 0, 0, 0), Size = Dim2(1, 0, 0, 3), Anchor = NewVector2(0, 0) },
+        OutV = { Pos = Dim2(1, 0, 0, 0), Size = Dim2(0, 3, 1, 0), Anchor = NewVector2(1, 0) },
+        InH  = { Pos = Dim2(0, 1, 0, 1), Size = Dim2(1, -2, 0, 1), Anchor = NewVector2(0, 0) },
+        InV  = { Pos = Dim2(1, -1, 0, 1), Size = Dim2(0, 1, 1, -2), Anchor = NewVector2(1, 0) },
     },
-    { -- BL └  (bottom + left edges)
+    { -- BL └
         Pos = Dim2(0, 0, 1, 0), Anchor = NewVector2(0, 1),
-        H = { Pos = Dim2(0, 0, 1, 0), Size = Dim2(1, 0, 0, 2), Anchor = NewVector2(0, 1) },
-        V = { Pos = Dim2(0, 0, 0, 0), Size = Dim2(0, 2, 1, 0), Anchor = NewVector2(0, 0) },
+        OutH = { Pos = Dim2(0, 0, 1, 0), Size = Dim2(1, 0, 0, 3), Anchor = NewVector2(0, 1) },
+        OutV = { Pos = Dim2(0, 0, 0, 0), Size = Dim2(0, 3, 1, 0), Anchor = NewVector2(0, 0) },
+        InH  = { Pos = Dim2(0, 1, 1, -1), Size = Dim2(1, -2, 0, 1), Anchor = NewVector2(0, 1) },
+        InV  = { Pos = Dim2(0, 1, 0, 1), Size = Dim2(0, 1, 1, -2), Anchor = NewVector2(0, 0) },
     },
-    { -- BR ┘  (bottom + right edges)
+    { -- BR ┘
         Pos = Dim2(1, 0, 1, 0), Anchor = NewVector2(1, 1),
-        H = { Pos = Dim2(0, 0, 1, 0), Size = Dim2(1, 0, 0, 2), Anchor = NewVector2(0, 1) },
-        V = { Pos = Dim2(1, 0, 0, 0), Size = Dim2(0, 2, 1, 0), Anchor = NewVector2(1, 0) },
+        OutH = { Pos = Dim2(0, 0, 1, 0), Size = Dim2(1, 0, 0, 3), Anchor = NewVector2(0, 1) },
+        OutV = { Pos = Dim2(1, 0, 0, 0), Size = Dim2(0, 3, 1, 0), Anchor = NewVector2(1, 0) },
+        InH  = { Pos = Dim2(0, 1, 1, -1), Size = Dim2(1, -2, 0, 1), Anchor = NewVector2(0, 1) },
+        InV  = { Pos = Dim2(1, -1, 0, 1), Size = Dim2(0, 1, 1, -2), Anchor = NewVector2(1, 0) },
     },
 }
 
@@ -2642,10 +2659,11 @@ local function Apply_Corner_Elbow(Objects, Index, Arm, GradCfg)
         ArmObj.Visible = true
     end
 
-    Place(Objects['CornerInH_' .. Index], Layout.H)
-    Place(Objects['CornerInV_' .. Index], Layout.V)
+    Place(Objects['CornerOutH_' .. Index], Layout.OutH)
+    Place(Objects['CornerOutV_' .. Index], Layout.OutV)
+    Place(Objects['CornerInH_' .. Index], Layout.InH)
+    Place(Objects['CornerInV_' .. Index], Layout.InV)
 
-    -- Same gradient colors as full-box inline stroke
     ApplyTwoColorGradient(Objects['CornerInHGrad_' .. Index], GradCfg, 0)
     ApplyTwoColorGradient(Objects['CornerInVGrad_' .. Index], GradCfg, 90)
     Objects['CornerInH_' .. Index].BackgroundColor3 = White
@@ -3604,7 +3622,7 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
         local HealthThickness = GetBarDisplayThickness(HealthCfg['Thickness'], Ratio)
 
         if Data['LastHealthDisplayThickness'] ~= HealthThickness then
-            Objects['HealthBarOutline'].Size = Dim2(0, HealthThickness, 1, 0)
+            Objects['HealthBarOutline'].Size = Dim2(0, HealthThickness, 1, -2)
             Data['LastHealthDisplayThickness'] = HealthThickness
         end
 
