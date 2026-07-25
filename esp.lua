@@ -354,15 +354,15 @@ local function GetWeaponIconAspect(name)
 end
 
 local function GetWeaponIconPixelSize(name, distance, maxHeight)
-    maxHeight = maxHeight or 14
-    -- Bucket distance so icon size does not thrash every frame (jitter)
-    local DistBucket = Floor((tonumber(distance) or 0) / 12) * 12
-    local distScale = Clamp(DistBucket / 85, 0.48, 1.0)
+    maxHeight = maxHeight or 16
+    -- Closer = bigger, farther = smaller (bucketed to avoid jitter)
+    local DistBucket = Floor((tonumber(distance) or 0) / 10) * 10
+    local distScale = Clamp(55 / math.max(DistBucket, 14), 0.38, 1.2)
     local aspectW, aspectH = GetWeaponIconAspect(name)
     local h = Floor(maxHeight * distScale * aspectH + 0.5)
     local w = Floor(h * aspectW + 0.5)
-    h = Clamp(h, 7, 20)
-    w = Clamp(w, 10, 46)
+    h = Clamp(h, 6, math.max(maxHeight + 6, 22))
+    w = Clamp(w, 8, 52)
     return w, h
 end
 
@@ -753,7 +753,29 @@ local BOX_GLOW_PAD_BOTTOM = 20
 local BOX_GLOW_PAD_X = BOX_GLOW_PAD_LEFT + BOX_GLOW_PAD_RIGHT
 local BOX_GLOW_PAD_Y = BOX_GLOW_PAD_TOP + BOX_GLOW_PAD_BOTTOM
 
+-- Forward-declared so projection helpers can read ProjectionFov
+local EspLibrary
+
+-- When set, ESP projects with this FOV instead of Camera.FieldOfView so
+-- viewmodel FOV overrides do not slide boxes/icons off enemies.
+local EspProjectionFov = nil
+
 local function WorldToViewportPoint(Cam, Position)
+    local OverrideFov = EspProjectionFov
+    if typeof(OverrideFov) == 'number' and OverrideFov > 1 then
+        local Local = Cam.CFrame:PointToObjectSpace(Position)
+        -- In front of camera: Local.Z is negative
+        if Local.Z >= -0.05 then
+            return NewVector3(0, 0, Local.Z), false
+        end
+        local Size = Cam.ViewportSize
+        local Focal = Size.Y / (2 * Tan(Rad(OverrideFov * 0.5)))
+        local ScreenX = Size.X * 0.5 + (-Local.X / Local.Z) * Focal
+        local ScreenY = Size.Y * 0.5 + (-Local.Y / Local.Z) * Focal
+        local Depth = -Local.Z
+        local OnScreen = ScreenX >= -40 and ScreenY >= -40 and ScreenX <= Size.X + 40 and ScreenY <= Size.Y + 40
+        return NewVector3(ScreenX, ScreenY, Depth), OnScreen
+    end
     return Cam:WorldToViewportPoint(Position)
 end
 
@@ -771,7 +793,9 @@ local function GetScreenPoint(Cam, WorldPos, ViewportFrame)
             return nil, false
         end
 
-        local Focal = Size.Y / (2 * Tan(Rad(Cam.FieldOfView * 0.5)))
+        local Fov = (typeof(EspProjectionFov) == 'number' and EspProjectionFov > 1 and EspProjectionFov)
+            or Cam.FieldOfView
+        local Focal = Size.Y / (2 * Tan(Rad(Fov * 0.5)))
         local ScreenX = Size.X * 0.5 + (-Local.X / Local.Z) * Focal
         local ScreenY = Size.Y * 0.5 + (-Local.Y / Local.Z) * Focal
 
@@ -788,8 +812,10 @@ local function CameraCache()
         return
     end
 
-    ViewPortY = Cam.ViewportSize.Y;
-    CachedFocalLength = ViewPortY / (2 * Tan(Rad(Cam.FieldOfView) * 0.5));
+    ViewPortY = Cam.ViewportSize.Y
+    local Fov = (typeof(EspProjectionFov) == 'number' and EspProjectionFov > 1 and EspProjectionFov)
+        or Cam.FieldOfView
+    CachedFocalLength = ViewPortY / (2 * Tan(Rad(Fov) * 0.5))
 end
 
 CameraCache();
@@ -808,7 +834,7 @@ do
     end)
 end
 
-local EspLibrary = {
+EspLibrary = {
     ['Directory'] = 'Esp',
     ['Cache'] = {},
     ['Holder'] = nil,
@@ -2521,12 +2547,12 @@ function EspLibrary:InitEsp(Data, HolderParent)
             HorizontalAlignment = Enum.HorizontalAlignment.Center,
             VerticalAlignment = Enum.VerticalAlignment.Top,
             SortOrder = Enum.SortOrder.LayoutOrder,
-            Padding = Dim(0, 2),
+            Padding = Dim(0, 1),
         })
 
         Objects["WeaponIconHolder"] = self:CreateObjects("Frame", {
             Parent = Objects["WeaponStack"],
-            LayoutOrder = 1,
+            LayoutOrder = 0,
             Visible = false,
             BackgroundTransparency = 1,
             AnchorPoint = NewVector2(0.5, 0),
@@ -2538,11 +2564,11 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Parent = Objects["WeaponIconHolder"],
             BackgroundTransparency = 1,
             AnchorPoint = NewVector2(0.5, 0.5),
-            Position = Dim2(0.5, 1, 0.5, 2),
+            Position = Dim2(0.5, 1, 0.5, 1),
             Size = Dim2(1, 0, 1, 0),
             Image = "",
             ImageColor3 = Color3.fromRGB(0, 0, 0),
-            ImageTransparency = 0.35,
+            ImageTransparency = 0.4,
             ScaleType = Enum.ScaleType.Fit,
             ZIndex = 4,
             Visible = true,
@@ -2568,18 +2594,17 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Parent = Objects["WeaponStack"],
             FontFace = EspLibrary.SmallestPixel,
             TextSize = 9,
-            LayoutOrder = 2,
+            LayoutOrder = 1,
             TextColor3 = White,
-            Text = "none",
+            Text = "",
             TextXAlignment = Enum.TextXAlignment.Center,
             TextYAlignment = Enum.TextYAlignment.Center,
             BorderSizePixel = 0,
             Visible = false,
             BackgroundTransparency = 1,
             ZIndex = 5,
-            -- Fixed line height so weapon never sits on top of distance
             AutomaticSize = Enum.AutomaticSize.X,
-            Size = Dim2(0, 0, 0, 12),
+            Size = Dim2(0, 0, 0, 11),
         })
 
         self:CreateObjects("UIStroke", {
@@ -3690,7 +3715,7 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
     local WeaponCfg = TextsCfg['Weapon']
 
     if WeaponCfg['Enabled'] and Player ~= LocalPlayer then
-        local ShowText = WeaponCfg['ShowText'] ~= false
+        local ShowText = false -- icons only (match dropped items)
         local ShowIcon = WeaponCfg['ShowIcon'] ~= false
         local CurrentTool = FighterBridge.GetEquippedWeaponName(Player, Data)
         local Stack = Objects['WeaponStack']
@@ -3740,20 +3765,13 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
             IconHolder.Visible = false
         end
 
-        if ShowText and WeaponLabel then
-            if not WeaponLabel.Visible then
-                WeaponLabel.Visible = true
-            end
-            ApplyTwoColorGradient(Objects['WeaponGradient'], WeaponCfg, 0)
-            WeaponLabel.TextColor3 = White
-        elseif WeaponLabel and WeaponLabel.Visible then
+        if WeaponLabel and WeaponLabel.Visible then
             WeaponLabel.Visible = false
         end
 
-        -- Hide whole stack if neither mode is showing anything
+        -- Hide whole stack if icon isn't showing
         if Stack then
-            local any = (IconHolder and IconHolder.Visible) or (WeaponLabel and WeaponLabel.Visible)
-            Stack.Visible = any and true or false
+            Stack.Visible = (IconHolder and IconHolder.Visible) and true or false
         end
     else
         if Objects['WeaponStack'] and Objects['WeaponStack'].Visible then
@@ -4038,6 +4056,21 @@ end
 
 function EspLibrary:GetTable()
     return Table
+end
+
+function EspLibrary:SetProjectionFov(Fov)
+    if typeof(Fov) == 'number' and Fov > 1 then
+        EspProjectionFov = Fov
+        if self then
+            self.ProjectionFov = Fov
+        end
+    else
+        EspProjectionFov = nil
+        if self then
+            self.ProjectionFov = nil
+        end
+    end
+    CameraCache()
 end
 
 function EspLibrary:IsEnemyPlayer(Player)
