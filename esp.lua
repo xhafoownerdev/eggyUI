@@ -290,12 +290,8 @@ local GradientScrollClock = 0
 local LastGradientTick = os.clock()
 
 local WeaponIconCache = {}
+local WeaponModuleCache = {}
 
--- EXACT BloxStrike icon logic:
---   local Database = ReplicatedStorage.Database
---   local data = Database.Custom.Weapons:FindFirstChild(name)
---   if data then return require(data).Icon end
--- Cached so require() only ever runs once per weapon name.
 local function GetWeaponIcon(name)
     if type(name) ~= 'string' or name == '' or name == 'none' then
         return nil
@@ -307,11 +303,30 @@ local function GetWeaponIcon(name)
     end
 
     local ok, icon = pcall(function()
-        local Database = ReplicatedStorage.Database
-        local data = Database.Custom.Weapons:FindFirstChild(name)
-        if data then
-            return require(data).Icon
+        local Database = ReplicatedStorage:FindFirstChild('Database')
+        if not Database then return nil end
+        local Custom = Database:FindFirstChild('Custom')
+        if not Custom then return nil end
+        local Weapons = Custom:FindFirstChild('Weapons')
+        if not Weapons then return nil end
+        local data = Weapons:FindFirstChild(name)
+        if not data then return nil end
+
+        local mod = WeaponModuleCache[name]
+        if mod == nil then
+            local rok, required = pcall(require, data)
+            if rok and type(required) == 'table' then
+                mod = required
+                WeaponModuleCache[name] = mod
+            else
+                WeaponModuleCache[name] = false
+                return nil
+            end
+        elseif mod == false then
+            return nil
         end
+
+        return mod.Icon
     end)
 
     if ok and type(icon) == 'string' and icon ~= '' then
@@ -354,15 +369,14 @@ local function GetWeaponIconAspect(name)
 end
 
 local function GetWeaponIconPixelSize(name, distance, maxHeight)
-    maxHeight = maxHeight or 16
-    -- Closer = bigger, farther = smaller (bucketed to avoid jitter)
-    local DistBucket = Floor((tonumber(distance) or 0) / 10) * 10
-    local distScale = Clamp(55 / math.max(DistBucket, 14), 0.38, 1.2)
+    maxHeight = maxHeight or 14
+    -- Closer = smaller icon; farther scales up slightly (capped)
+    local distScale = Clamp(distance / 85, 0.48, 1.0)
     local aspectW, aspectH = GetWeaponIconAspect(name)
     local h = Floor(maxHeight * distScale * aspectH + 0.5)
     local w = Floor(h * aspectW + 0.5)
-    h = Clamp(h, 6, math.max(maxHeight + 6, 22))
-    w = Clamp(w, 8, 52)
+    h = Clamp(h, 7, 20)
+    w = Clamp(w, 10, 46)
     return w, h
 end
 
@@ -943,7 +957,7 @@ EspLibrary = {
                 ['AnimSpeed'] = 1,
                 ['FontSize'] = 9,
                 ['ShowText'] = true,
-                ['ShowIcon'] = false,
+                ['ShowIcon'] = true,
                 ['IconMaxHeight'] = 14,
             },
         },
@@ -1795,7 +1809,8 @@ function EspLibrary:InitEsp(Data, HolderParent)
             AutomaticSize = Enum.AutomaticSize.Y,
             Visible = true,
             BackgroundTransparency = 1,
-            Position = Dim2(0, -2, 1, 2),
+            -- 1px under the box outline: as close as possible without touching it
+            Position = Dim2(0, -2, 1, 1),
             Size = Dim2(1, 4, 0, 0),
             BorderSizePixel = 0,
             BorderColor3 = Color3.fromRGB(0, 0, 0),
@@ -1922,7 +1937,7 @@ function EspLibrary:InitEsp(Data, HolderParent)
             FillDirection = Enum.FillDirection.Vertical,
             HorizontalAlignment = Enum.HorizontalAlignment.Center,
             VerticalAlignment = Enum.VerticalAlignment.Top,
-            Padding = Dim(0, 3),
+            Padding = Dim(0, 0),
             SortOrder = Enum.SortOrder.LayoutOrder,
         })
 
@@ -1945,6 +1960,7 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Parent = Objects["LeftBarHolder"],
             FillDirection = Enum.FillDirection.Horizontal,
             HorizontalAlignment = Enum.HorizontalAlignment.Right,
+            VerticalAlignment = Enum.VerticalAlignment.Top,
             Padding = Dim(0, 5),
             SortOrder = Enum.SortOrder.LayoutOrder,
         })
@@ -1973,6 +1989,7 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Parent = Objects["LeftHolder"],
             FillDirection = Enum.FillDirection.Horizontal,
             HorizontalAlignment = Enum.HorizontalAlignment.Left,
+            VerticalAlignment = Enum.VerticalAlignment.Top,
             Padding = Dim(0, 1),
             SortOrder = Enum.SortOrder.LayoutOrder,
         })
@@ -1995,7 +2012,7 @@ function EspLibrary:InitEsp(Data, HolderParent)
 
         self:CreateObjects("UIPadding", {
             Parent = Objects["BottomTextHolder"],
-            PaddingTop = Dim(0, 2),
+            PaddingTop = Dim(0, 0),
         })
 
         self:CreateObjects("UIPadding", {
@@ -2063,8 +2080,9 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Parent = Objects["BoxGlow"],
             Visible = false,
             BackgroundTransparency = 1,
-            Position = Dim2(0, 0, 0, 0),
-            Size = Dim2(1, 0, 1, 0),
+            -- Inset 1px: centered 2px stroke outer edge lands on TargetHolder (same as health bar)
+            Position = Dim2(0, 1, 0, 1),
+            Size = Dim2(1, -2, 1, -2),
             BorderSizePixel = 0,
             BorderColor3 = Color3.fromRGB(0, 0, 0),
             BackgroundColor3 = Color3.fromRGB(255, 255, 255),
@@ -2072,7 +2090,7 @@ function EspLibrary:InitEsp(Data, HolderParent)
 
         Objects["BoxOutline"] = self:CreateObjects("UIStroke", {
             Parent = Objects["BoxOutlineHolder"],
-            Thickness = 3,
+            Thickness = 2,
             LineJoinMode = Enum.LineJoinMode.Miter,
         })
 
@@ -2090,8 +2108,9 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Parent = Objects["BoxGlow"],
             Visible = false,
             BackgroundTransparency = 1,
-            Position = Dim2(0, -1, 0, -1),
-            Size = Dim2(1, 2, 1, 2),
+            -- White ring sits just inside the black outer edge
+            Position = Dim2(0, 1, 0, 1),
+            Size = Dim2(1, -2, 1, -2),
             BorderSizePixel = 0,
             BorderColor3 = Color3.fromRGB(0, 0, 0),
             BackgroundColor3 = Color3.fromRGB(255, 255, 255),
@@ -2235,17 +2254,21 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Visible = false,
             BackgroundTransparency = 0,
             Position = Dim2(0, 0, 0, 0),
+            -- Exact TargetHolder height (same as box). No UIStroke — it overshoots by 1px.
             Size = Dim2(0, 1, 1, 0),
             BorderSizePixel = 0,
             BorderColor3 = Color3.fromRGB(0, 0, 0),
             BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-            ClipsDescendants = false,
+            ClipsDescendants = true,
         })
 
-        self:CreateObjects("UIStroke", {
+        -- 1px black border drawn INSIDE the outline so outer height stays = box height
+        self:CreateObjects("UIPadding", {
             Parent = Objects["HealthBarOutline"],
-            Thickness = 1,
-            LineJoinMode = Enum.LineJoinMode.Miter,
+            PaddingTop = Dim(0, 1),
+            PaddingBottom = Dim(0, 1),
+            PaddingLeft = Dim(0, 1),
+            PaddingRight = Dim(0, 1),
         })
 
         Objects["HealthBar"] = self:CreateObjects("Frame", {
@@ -2403,7 +2426,7 @@ function EspLibrary:InitEsp(Data, HolderParent)
             ZIndex = 5,
             -- Fixed line height so distance always owns its own row under the box
             AutomaticSize = Enum.AutomaticSize.X,
-            Size = Dim2(0, 0, 0, 12),
+            Size = Dim2(0, 0, 0, 9),
         })
 
         self:CreateObjects("UIStroke", {
@@ -2527,7 +2550,7 @@ function EspLibrary:InitEsp(Data, HolderParent)
             HorizontalAlignment = Enum.HorizontalAlignment.Center,
             VerticalAlignment = Enum.VerticalAlignment.Top,
             SortOrder = Enum.SortOrder.LayoutOrder,
-            Padding = Dim(0, 1),
+            Padding = Dim(0, 0),
         })
 
         Objects["WeaponIconHolder"] = self:CreateObjects("Frame", {
@@ -2544,11 +2567,11 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Parent = Objects["WeaponIconHolder"],
             BackgroundTransparency = 1,
             AnchorPoint = NewVector2(0.5, 0.5),
-            Position = Dim2(0.5, 1, 0.5, 1),
+            Position = Dim2(0.5, 1, 0.5, 2),
             Size = Dim2(1, 0, 1, 0),
             Image = "",
             ImageColor3 = Color3.fromRGB(0, 0, 0),
-            ImageTransparency = 0.4,
+            ImageTransparency = 0.35,
             ScaleType = Enum.ScaleType.Fit,
             ZIndex = 4,
             Visible = true,
@@ -2576,15 +2599,14 @@ function EspLibrary:InitEsp(Data, HolderParent)
             TextSize = 9,
             LayoutOrder = 1,
             TextColor3 = White,
-            Text = "",
+            Text = "none",
             TextXAlignment = Enum.TextXAlignment.Center,
-            TextYAlignment = Enum.TextYAlignment.Center,
             BorderSizePixel = 0,
             Visible = false,
             BackgroundTransparency = 1,
             ZIndex = 5,
-            AutomaticSize = Enum.AutomaticSize.X,
-            Size = Dim2(0, 0, 0, 11),
+            AutomaticSize = Enum.AutomaticSize.XY,
+            Size = Dim2(0, 0, 0, 0),
         })
 
         self:CreateObjects("UIStroke", {
@@ -3403,18 +3425,23 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
         return
     end
 
-    -- Sub-pixel lock: no Floor snap so overlays stay glued to enemies
+    -- Integer pixel lock so health bar + box share the exact same height
+    local PixelW = math.max(1, Floor(W + 0.5))
+    local PixelH = math.max(1, Floor(H + 0.5))
+    local PixelX = Floor(X + 0.5)
+    local PixelY = Floor(Y + 0.5)
+
     if not Objects['TargetHolder'].Visible then
         Objects['TargetHolder'].Visible = true
     end
 
-    Objects['TargetHolder'].Position = DimOffset(X, Y)
-    Objects['TargetHolder'].Size = DimOffset(W, H)
-    Objects['BoxGlow'].Size = DimOffset(W + BOX_GLOW_PAD_X, H + BOX_GLOW_PAD_Y)
-    Data['LastX'] = X
-    Data['LastY'] = Y
-    Data['LastW'] = W
-    Data['LastH'] = H
+    Objects['TargetHolder'].Position = DimOffset(PixelX, PixelY)
+    Objects['TargetHolder'].Size = DimOffset(PixelW, PixelH)
+    Objects['BoxGlow'].Size = DimOffset(PixelW + BOX_GLOW_PAD_X, PixelH + BOX_GLOW_PAD_Y)
+    Data['LastX'] = PixelX
+    Data['LastY'] = PixelY
+    Data['LastW'] = PixelW
+    Data['LastH'] = PixelH
 
     local BoxesCfg = Table['Boxes']
     local TextsCfg = Table['Texts']
@@ -3696,7 +3723,7 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
 
     if WeaponCfg['Enabled'] and Player ~= LocalPlayer then
         local ShowText = WeaponCfg['ShowText'] ~= false
-        local ShowIcon = WeaponCfg['ShowIcon'] == true
+        local ShowIcon = WeaponCfg['ShowIcon'] ~= false
         local CurrentTool = FighterBridge.GetEquippedWeaponName(Player, Data)
         local Stack = Objects['WeaponStack']
         local IconHolder = Objects['WeaponIconHolder']
@@ -3746,19 +3773,16 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
         end
 
         if ShowText and WeaponLabel then
-            if CurrentTool and CurrentTool ~= '' and CurrentTool ~= 'none' then
-                if not WeaponLabel.Visible then
-                    WeaponLabel.Visible = true
-                end
-                ApplyTwoColorGradient(Objects['WeaponGradient'], WeaponCfg, 0)
-                WeaponLabel.TextColor3 = White
-            elseif WeaponLabel.Visible then
-                WeaponLabel.Visible = false
+            if not WeaponLabel.Visible then
+                WeaponLabel.Visible = true
             end
+            ApplyTwoColorGradient(Objects['WeaponGradient'], WeaponCfg, 0)
+            WeaponLabel.TextColor3 = White
         elseif WeaponLabel and WeaponLabel.Visible then
             WeaponLabel.Visible = false
         end
 
+        -- Hide whole stack if neither mode is showing anything
         if Stack then
             local any = (IconHolder and IconHolder.Visible) or (WeaponLabel and WeaponLabel.Visible)
             Stack.Visible = any and true or false
