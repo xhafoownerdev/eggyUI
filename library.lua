@@ -1793,11 +1793,13 @@ local function Build_Controls(Container, Content)
 		})
 		local Bar_Stroke = Stroke(Bar, Theme.Border)
 
+		local Range = math.max(Max - Min, 1e-9)
+
 		local Fill = Create("Frame", {
 			Parent = Bar,
 			BackgroundColor3 = Color3.fromRGB(255, 255, 255),
 			BorderSizePixel = 0,
-			Size = UDim2.new((Default - Min) / math.max(Max - Min, 1), 0, 1, 0),
+			Size = UDim2.new((Default - Min) / Range, 0, 1, 0),
 			ZIndex = 7,
 		})
 		Create("UIGradient", {
@@ -1840,7 +1842,7 @@ local function Build_Controls(Container, Content)
 
 		local function Set(Val, Fire, Instant)
 			Value = Round(Clamp(Val, Min, Max), Decimals)
-			local Pct = (Value - Min) / math.max(Max - Min, 1)
+			local Pct = Clamp((Value - Min) / Range, 0, 1)
 			if Instant then
 				Fill.Size = UDim2.new(Pct, 0, 1, 0)
 			else
