@@ -753,29 +753,12 @@ local BOX_GLOW_PAD_BOTTOM = 20
 local BOX_GLOW_PAD_X = BOX_GLOW_PAD_LEFT + BOX_GLOW_PAD_RIGHT
 local BOX_GLOW_PAD_Y = BOX_GLOW_PAD_TOP + BOX_GLOW_PAD_BOTTOM
 
--- Forward-declared so projection helpers can read ProjectionFov
+-- Forward-declared (assigned below)
 local EspLibrary
 
--- When set, ESP projects with this FOV instead of Camera.FieldOfView so
--- viewmodel FOV overrides do not slide boxes/icons off enemies.
-local EspProjectionFov = nil
-
 local function WorldToViewportPoint(Cam, Position)
-    local OverrideFov = EspProjectionFov
-    if typeof(OverrideFov) == 'number' and OverrideFov > 1 then
-        local Local = Cam.CFrame:PointToObjectSpace(Position)
-        -- In front of camera: Local.Z is negative
-        if Local.Z >= -0.05 then
-            return NewVector3(0, 0, Local.Z), false
-        end
-        local Size = Cam.ViewportSize
-        local Focal = Size.Y / (2 * Tan(Rad(OverrideFov * 0.5)))
-        local ScreenX = Size.X * 0.5 + (-Local.X / Local.Z) * Focal
-        local ScreenY = Size.Y * 0.5 + (-Local.Y / Local.Z) * Focal
-        local Depth = -Local.Z
-        local OnScreen = ScreenX >= -40 and ScreenY >= -40 and ScreenX <= Size.X + 40 and ScreenY <= Size.Y + 40
-        return NewVector3(ScreenX, ScreenY, Depth), OnScreen
-    end
+    -- Always use the engine projection so boxes stay glued to enemies
+    -- regardless of FieldOfView / aspect (no custom FOV math).
     return Cam:WorldToViewportPoint(Position)
 end
 
@@ -793,9 +776,8 @@ local function GetScreenPoint(Cam, WorldPos, ViewportFrame)
             return nil, false
         end
 
-        local Fov = (typeof(EspProjectionFov) == 'number' and EspProjectionFov > 1 and EspProjectionFov)
-            or Cam.FieldOfView
-        local Focal = Size.Y / (2 * Tan(Rad(Fov * 0.5)))
+        -- Preview viewport only: match AbsoluteSize, still use Cam.FieldOfView
+        local Focal = Size.Y / (2 * Tan(Rad(Cam.FieldOfView * 0.5)))
         local ScreenX = Size.X * 0.5 + (-Local.X / Local.Z) * Focal
         local ScreenY = Size.Y * 0.5 + (-Local.Y / Local.Z) * Focal
 
@@ -813,9 +795,7 @@ local function CameraCache()
     end
 
     ViewPortY = Cam.ViewportSize.Y
-    local Fov = (typeof(EspProjectionFov) == 'number' and EspProjectionFov > 1 and EspProjectionFov)
-        or Cam.FieldOfView
-    CachedFocalLength = ViewPortY / (2 * Tan(Rad(Fov) * 0.5))
+    CachedFocalLength = ViewPortY / (2 * Tan(Rad(Cam.FieldOfView) * 0.5))
 end
 
 CameraCache();
@@ -962,8 +942,8 @@ EspLibrary = {
                 ['Mode'] = 'Scroll',
                 ['AnimSpeed'] = 1,
                 ['FontSize'] = 9,
-                ['ShowText'] = false,
-                ['ShowIcon'] = true,
+                ['ShowText'] = true,
+                ['ShowIcon'] = false,
                 ['IconMaxHeight'] = 14,
             },
         },
@@ -3715,8 +3695,8 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
     local WeaponCfg = TextsCfg['Weapon']
 
     if WeaponCfg['Enabled'] and Player ~= LocalPlayer then
-        local ShowText = false -- icons only (match dropped items)
-        local ShowIcon = WeaponCfg['ShowIcon'] ~= false
+        local ShowText = WeaponCfg['ShowText'] ~= false
+        local ShowIcon = WeaponCfg['ShowIcon'] == true
         local CurrentTool = FighterBridge.GetEquippedWeaponName(Player, Data)
         local Stack = Objects['WeaponStack']
         local IconHolder = Objects['WeaponIconHolder']
@@ -3765,13 +3745,23 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
             IconHolder.Visible = false
         end
 
-        if WeaponLabel and WeaponLabel.Visible then
+        if ShowText and WeaponLabel then
+            if CurrentTool and CurrentTool ~= '' and CurrentTool ~= 'none' then
+                if not WeaponLabel.Visible then
+                    WeaponLabel.Visible = true
+                end
+                ApplyTwoColorGradient(Objects['WeaponGradient'], WeaponCfg, 0)
+                WeaponLabel.TextColor3 = White
+            elseif WeaponLabel.Visible then
+                WeaponLabel.Visible = false
+            end
+        elseif WeaponLabel and WeaponLabel.Visible then
             WeaponLabel.Visible = false
         end
 
-        -- Hide whole stack if icon isn't showing
         if Stack then
-            Stack.Visible = (IconHolder and IconHolder.Visible) and true or false
+            local any = (IconHolder and IconHolder.Visible) or (WeaponLabel and WeaponLabel.Visible)
+            Stack.Visible = any and true or false
         end
     else
         if Objects['WeaponStack'] and Objects['WeaponStack'].Visible then
@@ -4056,21 +4046,6 @@ end
 
 function EspLibrary:GetTable()
     return Table
-end
-
-function EspLibrary:SetProjectionFov(Fov)
-    if typeof(Fov) == 'number' and Fov > 1 then
-        EspProjectionFov = Fov
-        if self then
-            self.ProjectionFov = Fov
-        end
-    else
-        EspProjectionFov = nil
-        if self then
-            self.ProjectionFov = nil
-        end
-    end
-    CameraCache()
 end
 
 function EspLibrary:IsEnemyPlayer(Player)
