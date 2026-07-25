@@ -1751,7 +1751,7 @@ local function Build_Controls(Container, Content)
 		local Holder = Create("Frame", {
 			Parent = Content,
 			BackgroundTransparency = 1,
-			Size = UDim2.new(1, -4, 0, 36),
+			Size = UDim2.new(1, -4, 0, 28),
 			LayoutOrder = Order,
 			ZIndex = 5,
 		})
@@ -1759,7 +1759,7 @@ local function Build_Controls(Container, Content)
 		Create("TextLabel", {
 			Parent = Holder,
 			BackgroundTransparency = 1,
-			Size = UDim2.new(1, -48, 0, 14),
+			Size = UDim2.new(1, -48, 0, 12),
 			FontFace = Fonts.Main,
 			Text = Options.Text or Options.Name or "slider",
 			TextColor3 = Color3.fromRGB(255, 255, 255),
@@ -1772,7 +1772,7 @@ local function Build_Controls(Container, Content)
 			Parent = Holder,
 			BackgroundTransparency = 1,
 			Position = UDim2.new(1, -48, 0, 0),
-			Size = UDim2.new(0, 48, 0, 14),
+			Size = UDim2.new(0, 48, 0, 12),
 			FontFace = Fonts.Code,
 			Text = tostring(Default) .. Suffix,
 			TextColor3 = Color3.fromRGB(255, 255, 255),
@@ -1786,8 +1786,8 @@ local function Build_Controls(Container, Content)
 			Parent = Holder,
 			BackgroundColor3 = Theme.Input_Back,
 			BorderSizePixel = 0,
-			Position = UDim2.new(0, 0, 0, 18),
-			Size = UDim2.new(1, 0, 0, 10),
+			Position = UDim2.new(0, 0, 0, 14),
+			Size = UDim2.new(1, 0, 0, 9),
 			ClipsDescendants = true,
 			ZIndex = 6,
 		})
@@ -3412,11 +3412,11 @@ local function Create_Groupbox(Parent, Title_Text, Side)
 	Create("UIListLayout", {
 		Parent = Content,
 		SortOrder = Enum.SortOrder.LayoutOrder,
-		Padding = UDim.new(0, 8),
+		Padding = UDim.new(0, 3),
 	})
 	Create("UIPadding", {
 		Parent = Box,
-		PaddingBottom = UDim.new(0, 12),
+		PaddingBottom = UDim.new(0, 8),
 	})
 
 	-- Title lives in the content list so it can't float into the tab bar
