@@ -2080,7 +2080,7 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Parent = Objects["BoxGlow"],
             Visible = false,
             BackgroundTransparency = 1,
-            -- Inset 1px: centered 2px stroke outer edge lands on TargetHolder (same as health bar)
+            -- 3px black base behind a 1px colored stroke = 1px black outline + inline
             Position = Dim2(0, 1, 0, 1),
             Size = Dim2(1, -2, 1, -2),
             BorderSizePixel = 0,
@@ -2090,7 +2090,8 @@ function EspLibrary:InitEsp(Data, HolderParent)
 
         Objects["BoxOutline"] = self:CreateObjects("UIStroke", {
             Parent = Objects["BoxOutlineHolder"],
-            Thickness = 2,
+            Color = Color3.fromRGB(0, 0, 0),
+            Thickness = 3,
             LineJoinMode = Enum.LineJoinMode.Miter,
         })
 
@@ -2108,7 +2109,7 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Parent = Objects["BoxGlow"],
             Visible = false,
             BackgroundTransparency = 1,
-            -- White ring sits just inside the black outer edge
+            -- 1px colored center; black base remains 1px outside and inside
             Position = Dim2(0, 1, 0, 1),
             Size = Dim2(1, -2, 1, -2),
             BorderSizePixel = 0,
@@ -2119,6 +2120,7 @@ function EspLibrary:InitEsp(Data, HolderParent)
         Objects["BoxInline"] = self:CreateObjects("UIStroke", {
             Parent = Objects["BoxInlineHolder"],
             Color = Color3.fromRGB(255, 255, 255),
+            Thickness = 1,
             LineJoinMode = Enum.LineJoinMode.Miter,
         })
 
@@ -2255,7 +2257,7 @@ function EspLibrary:InitEsp(Data, HolderParent)
             BackgroundTransparency = 0,
             Position = Dim2(0, 0, 0, 0),
             -- Exact TargetHolder height (same as box). No UIStroke — it overshoots by 1px.
-            Size = Dim2(0, 1, 1, 0),
+            Size = Dim2(0, 3, 1, 0),
             BorderSizePixel = 0,
             BorderColor3 = Color3.fromRGB(0, 0, 0),
             BackgroundColor3 = Color3.fromRGB(0, 0, 0),
@@ -3560,7 +3562,6 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
             end
 
             ApplyTwoColorGradient(Objects['BoxInlineGradient'], BoxesCfg['Gradients'], 0)
-            ApplyTwoColorGradient(Objects['BoxOutlineGradient'], BoxesCfg['Gradients'], 0)
 
             if FillEnabled then
                 if not Objects['BoxFill'].Visible then
@@ -3654,7 +3655,7 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
         local HealthThickness = GetBarDisplayThickness(HealthCfg['Thickness'], Ratio)
 
         if Data['LastHealthDisplayThickness'] ~= HealthThickness then
-            Objects['HealthBarOutline'].Size = Dim2(0, HealthThickness, 1, 0)
+            Objects['HealthBarOutline'].Size = Dim2(0, HealthThickness + 2, 1, 0)
             Data['LastHealthDisplayThickness'] = HealthThickness
         end
 
