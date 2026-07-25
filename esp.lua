@@ -290,8 +290,12 @@ local GradientScrollClock = 0
 local LastGradientTick = os.clock()
 
 local WeaponIconCache = {}
-local WeaponModuleCache = {}
 
+-- EXACT BloxStrike icon logic:
+--   local Database = ReplicatedStorage.Database
+--   local data = Database.Custom.Weapons:FindFirstChild(name)
+--   if data then return require(data).Icon end
+-- Cached so require() only ever runs once per weapon name.
 local function GetWeaponIcon(name)
     if type(name) ~= 'string' or name == '' or name == 'none' then
         return nil
@@ -303,39 +307,11 @@ local function GetWeaponIcon(name)
     end
 
     local ok, icon = pcall(function()
-        -- BloxStrike: ReplicatedStorage.Database.Custom.Weapons[name].Icon
-        local Database = ReplicatedStorage:FindFirstChild('Database') or ReplicatedStorage:FindFirstChild('database')
-        if not Database then
-            return nil
+        local Database = ReplicatedStorage.Database
+        local data = Database.Custom.Weapons:FindFirstChild(name)
+        if data then
+            return require(data).Icon
         end
-        local Custom = Database:FindFirstChild('Custom')
-        if not Custom then
-            return nil
-        end
-        local Weapons = Custom:FindFirstChild('Weapons')
-        if not Weapons then
-            return nil
-        end
-        local data = Weapons:FindFirstChild(name)
-        if not data then
-            return nil
-        end
-
-        local mod = WeaponModuleCache[name]
-        if mod == nil then
-            local rok, required = pcall(require, data)
-            if rok and type(required) == 'table' then
-                mod = required
-                WeaponModuleCache[name] = mod
-            else
-                WeaponModuleCache[name] = false
-                return nil
-            end
-        elseif mod == false then
-            return nil
-        end
-
-        return mod.Icon
     end)
 
     if ok and type(icon) == 'string' and icon ~= '' then
@@ -2152,69 +2128,77 @@ function EspLibrary:InitEsp(Data, HolderParent)
             BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         })
 
-        -- One connected L per corner (Path2D). Fallback: solid overlapping arms in one Frame.
-        local Path2D_Ok = false
-        do
-            local Ok, Inst = pcall(Instance.new, "Path2D")
-            if Ok and Inst then
-                Path2D_Ok = true
-                Inst:Destroy()
-            end
-        end
-
+        -- Corner elbows: same dual stroke as full box (black outline + colored inline), L only
         for i = 1, 4 do
-            if Path2D_Ok then
-                local Outline = Instance.new("Path2D")
-                Outline.Name = "CornerOutline_" .. i
-                Outline.Thickness = 3
-                Outline.Color3 = Color3.fromRGB(0, 0, 0)
-                Outline.Visible = false
-                Outline.ZIndex = 1
-                Outline.Parent = Objects["CornerHolder"]
-                Objects["CornerOutline_" .. i] = Outline
+            local Corner = self:CreateObjects("Frame", {
+                Parent = Objects["CornerHolder"],
+                Visible = false,
+                BackgroundTransparency = 1,
+                BorderSizePixel = 0,
+                Size = Dim2(0.25, 0, 0.25, 0),
+                ZIndex = 2,
+            })
+            Objects["Corner_" .. i] = Corner
 
-                local Path = Instance.new("Path2D")
-                Path.Name = "CornerPath_" .. i
-                Path.Thickness = 1
-                Path.Color3 = White
-                Path.Visible = false
-                Path.ZIndex = 2
-                Path.Parent = Objects["CornerHolder"]
-                Objects["CornerPath_" .. i] = Path
-            else
-                local Corner = self:CreateObjects("Frame", {
-                    Parent = Objects["CornerHolder"],
-                    Visible = false,
-                    BackgroundTransparency = 1,
-                    BorderSizePixel = 0,
-                    Size = Dim2(0.3, 0, 0.3, 0),
-                    ZIndex = 2,
-                })
-                Objects["Corner_" .. i] = Corner
+            -- Outer black arms (matches BoxOutline thickness ~3)
+            Objects["CornerOutH_" .. i] = self:CreateObjects("Frame", {
+                Parent = Corner,
+                BackgroundTransparency = 0,
+                BorderSizePixel = 0,
+                BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+                Size = Dim2(1, 0, 0, 3),
+                Position = Dim2(0, 0, 0, 0),
+                ZIndex = 2,
+            })
+            Objects["CornerOutV_" .. i] = self:CreateObjects("Frame", {
+                Parent = Corner,
+                BackgroundTransparency = 0,
+                BorderSizePixel = 0,
+                BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+                Size = Dim2(0, 3, 1, 0),
+                Position = Dim2(0, 0, 0, 0),
+                ZIndex = 2,
+            })
 
-                -- Single visual L: two solid arms that share the corner pixel (no separate strokes)
-                Objects["CornerH_" .. i] = self:CreateObjects("Frame", {
-                    Parent = Corner,
-                    BackgroundTransparency = 0,
-                    BorderSizePixel = 0,
-                    BackgroundColor3 = White,
-                    Size = Dim2(1, 0, 0, 1),
-                    Position = Dim2(0, 0, 0, 0),
-                    ZIndex = 2,
-                })
-                Objects["CornerV_" .. i] = self:CreateObjects("Frame", {
-                    Parent = Corner,
-                    BackgroundTransparency = 0,
-                    BorderSizePixel = 0,
-                    BackgroundColor3 = White,
-                    Size = Dim2(0, 1, 1, 0),
-                    Position = Dim2(0, 0, 0, 0),
-                    ZIndex = 2,
-                })
-            end
+            -- Inner colored arms (matches BoxInline thickness ~1), sit on the inside edge
+            Objects["CornerInH_" .. i] = self:CreateObjects("Frame", {
+                Parent = Corner,
+                BackgroundTransparency = 0,
+                BorderSizePixel = 0,
+                BackgroundColor3 = White,
+                Size = Dim2(1, -2, 0, 1),
+                Position = Dim2(0, 1, 0, 1),
+                ZIndex = 3,
+            })
+            Objects["CornerInHGrad_" .. i] = self:CreateObjects("UIGradient", {
+                Parent = Objects["CornerInH_" .. i],
+                Rotation = 0,
+                Color = ColorSequence.new({
+                    ColorSequenceKeypoint.new(0, White),
+                    ColorSequenceKeypoint.new(1, White),
+                }),
+                Transparency = NumSeq({NumKey(0, 0), NumKey(1, 0)}),
+            })
+
+            Objects["CornerInV_" .. i] = self:CreateObjects("Frame", {
+                Parent = Corner,
+                BackgroundTransparency = 0,
+                BorderSizePixel = 0,
+                BackgroundColor3 = White,
+                Size = Dim2(0, 1, 1, -2),
+                Position = Dim2(0, 1, 0, 1),
+                ZIndex = 3,
+            })
+            Objects["CornerInVGrad_" .. i] = self:CreateObjects("UIGradient", {
+                Parent = Objects["CornerInV_" .. i],
+                Rotation = 90,
+                Color = ColorSequence.new({
+                    ColorSequenceKeypoint.new(0, White),
+                    ColorSequenceKeypoint.new(1, White),
+                }),
+                Transparency = NumSeq({NumKey(0, 0), NumKey(1, 0)}),
+            })
         end
-
-        Objects["UsePath2DCorners"] = Path2D_Ok
 
         -- World-space 3D box (SelectionBox)
         Objects["Box3D"] = Instance.new("SelectionBox")
@@ -2595,89 +2579,80 @@ function EspLibrary:InitEsp(Data, HolderParent)
     self:ApplyFontToObjects(Objects)
 end
 
--- Sharp L corners as one polyline each (scale relative to CornerHolder)
-local Zero_Tangent = UDim2.new(0, 0, 0, 0)
-local function Corner_Point(X_Scale, X_Off, Y_Scale, Y_Off)
-    local Pos = UDim2.new(X_Scale, X_Off, Y_Scale, Y_Off)
-    if typeof(Path2DControlPoint) == 'function' or (type(Path2DControlPoint) == 'table' and Path2DControlPoint.new) then
-        return Path2DControlPoint.new(Pos, Zero_Tangent, Zero_Tangent)
-    end
-    return Pos
-end
-
-local function Build_Corner_Points(Index, Arm)
-    Arm = Arm or 0.28
-    if Index == 1 then -- top-left ┌
-        return {
-            Corner_Point(0, 0, Arm, 0),
-            Corner_Point(0, 0, 0, 0),
-            Corner_Point(Arm, 0, 0, 0),
-        }
-    elseif Index == 2 then -- top-right ┐
-        return {
-            Corner_Point(1 - Arm, 0, 0, 0),
-            Corner_Point(1, 0, 0, 0),
-            Corner_Point(1, 0, Arm, 0),
-        }
-    elseif Index == 3 then -- bottom-left └
-        return {
-            Corner_Point(0, 0, 1 - Arm, 0),
-            Corner_Point(0, 0, 1, 0),
-            Corner_Point(Arm, 0, 1, 0),
-        }
-    end
-    -- bottom-right ┘
-    return {
-        Corner_Point(1 - Arm, 0, 1, 0),
-        Corner_Point(1, 0, 1, 0),
-        Corner_Point(1, 0, 1 - Arm, 0),
-    }
-end
-
--- Frame fallback: one L unit per corner (arms share the corner, no outline strokes)
-local CornerFrameLayout = {
-    { -- TL
+-- Corner elbows: same dual stroke as full box, L-only at each corner.
+-- Layout places a square corner unit; Out* = black outline, In* = colored inline on the inside edge.
+local CornerElbowLayout = {
+    { -- TL ┌  (inside is down-right)
         Pos = Dim2(0, 0, 0, 0), Anchor = NewVector2(0, 0),
-        H = Dim2(1, 0, 0, 1), HP = Dim2(0, 0, 0, 0), HA = NewVector2(0, 0),
-        V = Dim2(0, 1, 1, 0), VP = Dim2(0, 0, 0, 0), VA = NewVector2(0, 0),
+        OutH = { Pos = Dim2(0, 0, 0, 0), Size = Dim2(1, 0, 0, 3), Anchor = NewVector2(0, 0) },
+        OutV = { Pos = Dim2(0, 0, 0, 0), Size = Dim2(0, 3, 1, 0), Anchor = NewVector2(0, 0) },
+        InH  = { Pos = Dim2(0, 1, 0, 1), Size = Dim2(1, -1, 0, 1), Anchor = NewVector2(0, 0) },
+        InV  = { Pos = Dim2(0, 1, 0, 1), Size = Dim2(0, 1, 1, -1), Anchor = NewVector2(0, 0) },
     },
-    { -- TR
+    { -- TR ┐  (inside is down-left)
         Pos = Dim2(1, 0, 0, 0), Anchor = NewVector2(1, 0),
-        H = Dim2(1, 0, 0, 1), HP = Dim2(0, 0, 0, 0), HA = NewVector2(0, 0),
-        V = Dim2(0, 1, 1, 0), VP = Dim2(1, 0, 0, 0), VA = NewVector2(1, 0),
+        OutH = { Pos = Dim2(0, 0, 0, 0), Size = Dim2(1, 0, 0, 3), Anchor = NewVector2(0, 0) },
+        OutV = { Pos = Dim2(1, 0, 0, 0), Size = Dim2(0, 3, 1, 0), Anchor = NewVector2(1, 0) },
+        InH  = { Pos = Dim2(0, 0, 0, 1), Size = Dim2(1, -1, 0, 1), Anchor = NewVector2(0, 0) },
+        InV  = { Pos = Dim2(1, -1, 0, 1), Size = Dim2(0, 1, 1, -1), Anchor = NewVector2(1, 0) },
     },
-    { -- BL
+    { -- BL └  (inside is up-right)
         Pos = Dim2(0, 0, 1, 0), Anchor = NewVector2(0, 1),
-        H = Dim2(1, 0, 0, 1), HP = Dim2(0, 0, 1, 0), HA = NewVector2(0, 1),
-        V = Dim2(0, 1, 1, 0), VP = Dim2(0, 0, 0, 0), VA = NewVector2(0, 0),
+        OutH = { Pos = Dim2(0, 0, 1, 0), Size = Dim2(1, 0, 0, 3), Anchor = NewVector2(0, 1) },
+        OutV = { Pos = Dim2(0, 0, 0, 0), Size = Dim2(0, 3, 1, 0), Anchor = NewVector2(0, 0) },
+        InH  = { Pos = Dim2(0, 1, 1, -1), Size = Dim2(1, -1, 0, 1), Anchor = NewVector2(0, 1) },
+        InV  = { Pos = Dim2(0, 1, 0, 0), Size = Dim2(0, 1, 1, -1), Anchor = NewVector2(0, 0) },
     },
-    { -- BR
+    { -- BR ┘  (inside is up-left)
         Pos = Dim2(1, 0, 1, 0), Anchor = NewVector2(1, 1),
-        H = Dim2(1, 0, 0, 1), HP = Dim2(0, 0, 1, 0), HA = NewVector2(0, 1),
-        V = Dim2(0, 1, 1, 0), VP = Dim2(1, 0, 0, 0), VA = NewVector2(1, 0),
+        OutH = { Pos = Dim2(0, 0, 1, 0), Size = Dim2(1, 0, 0, 3), Anchor = NewVector2(0, 1) },
+        OutV = { Pos = Dim2(1, 0, 0, 0), Size = Dim2(0, 3, 1, 0), Anchor = NewVector2(1, 0) },
+        InH  = { Pos = Dim2(0, 0, 1, -1), Size = Dim2(1, -1, 0, 1), Anchor = NewVector2(0, 1) },
+        InV  = { Pos = Dim2(1, -1, 0, 0), Size = Dim2(0, 1, 1, -1), Anchor = NewVector2(1, 0) },
     },
 }
 
 local function Hide_Corner_Objects(Objects)
-    if Objects['UsePath2DCorners'] then
-        for i = 1, 4 do
-            local Path = Objects['CornerPath_' .. i]
-            local Outline = Objects['CornerOutline_' .. i]
-            if Path and Path.Visible then
-                Path.Visible = false
-            end
-            if Outline and Outline.Visible then
-                Outline.Visible = false
-            end
-        end
-    else
-        for i = 1, 4 do
-            local Corner = Objects['Corner_' .. i]
-            if Corner and Corner.Visible then
-                Corner.Visible = false
-            end
+    for i = 1, 4 do
+        local Corner = Objects['Corner_' .. i]
+        if Corner and Corner.Visible then
+            Corner.Visible = false
         end
     end
+end
+
+local function Apply_Corner_Elbow(Objects, Index, Arm, GradCfg)
+    local Corner = Objects['Corner_' .. Index]
+    local Layout = CornerElbowLayout[Index]
+    if not Corner or not Layout then
+        return
+    end
+
+    Corner.Position = Layout.Pos
+    Corner.AnchorPoint = Layout.Anchor
+    Corner.Size = Dim2(Arm, 0, Arm, 0)
+    Corner.Visible = true
+
+    local function Place(ArmObj, Spec)
+        if not ArmObj or not Spec then
+            return
+        end
+        ArmObj.Position = Spec.Pos
+        ArmObj.Size = Spec.Size
+        ArmObj.AnchorPoint = Spec.Anchor
+        ArmObj.Visible = true
+    end
+
+    Place(Objects['CornerOutH_' .. Index], Layout.OutH)
+    Place(Objects['CornerOutV_' .. Index], Layout.OutV)
+    Place(Objects['CornerInH_' .. Index], Layout.InH)
+    Place(Objects['CornerInV_' .. Index], Layout.InV)
+
+    -- Same gradient colors as full-box inline stroke
+    ApplyTwoColorGradient(Objects['CornerInHGrad_' .. Index], GradCfg, 0)
+    ApplyTwoColorGradient(Objects['CornerInVGrad_' .. Index], GradCfg, 90)
+    Objects['CornerInH_' .. Index].BackgroundColor3 = White
+    Objects['CornerInV_' .. Index].BackgroundColor3 = White
 end
 
 function EspLibrary:CalculateBox(Data, ViewportCamera, ViewportFrame)
@@ -3490,66 +3465,33 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
             if Objects['BoxInlineHolder'].Visible then
                 Objects['BoxInlineHolder'].Visible = false
             end
-            if Objects['BoxFill'].Visible then
-                Objects['BoxFill'].Visible = false
-            end
 
             if not Objects['CornerHolder'].Visible then
                 Objects['CornerHolder'].Visible = true
             end
 
+            -- Same colors/gradients as full box; only elbows instead of full perimeter
             local GradCfg = BoxesCfg['Gradients']
-            local CornerColor = GetCfgColor1(GradCfg, White)
-            local Arm = 0.28
+            local Arm = 0.25
+            for i = 1, 4 do
+                Apply_Corner_Elbow(Objects, i, Arm, GradCfg)
+            end
 
-            if Objects['UsePath2DCorners'] then
-                for i = 1, 4 do
-                    local Path = Objects['CornerPath_' .. i]
-                    local Outline = Objects['CornerOutline_' .. i]
-                    local Points = Build_Corner_Points(i, Arm)
-                    if Outline then
-                        pcall(function()
-                            Outline:SetControlPoints(Points)
-                        end)
-                        Outline.Color3 = Color3.fromRGB(0, 0, 0)
-                        Outline.Thickness = 3
-                        Outline.Visible = true
-                    end
-                    if Path then
-                        pcall(function()
-                            Path:SetControlPoints(Points)
-                        end)
-                        Path.Color3 = CornerColor
-                        Path.Thickness = 1
-                        Path.Visible = true
-                    end
+            -- Fill behaves exactly like full ESP
+            if FillEnabled then
+                if not Objects['BoxFill'].Visible then
+                    Objects['BoxFill'].Visible = true
                 end
+
+                local FillCfg = BoxesCfg['Filled']
+                local FillT1 = FillCfg['Transparency'][1]
+                local FillT2 = FillCfg['Transparency'][2]
+
+                ApplyTwoColorGradient(Objects['BoxFillGradient'], FillCfg, 0, FillT1, FillT2)
+                SyncGradientTransparency(Objects['BoxFillGradient'], FillCfg, FillT1, FillT2, 'Fill', Data)
             else
-                for i = 1, 4 do
-                    local Corner = Objects['Corner_' .. i]
-                    local Layout = CornerFrameLayout[i]
-                    local H = Objects['CornerH_' .. i]
-                    local V = Objects['CornerV_' .. i]
-                    if Corner and Layout then
-                        Corner.Position = Layout.Pos
-                        Corner.AnchorPoint = Layout.Anchor
-                        Corner.Size = Dim2(Arm, 0, Arm, 0)
-                        Corner.Visible = true
-                    end
-                    if H and Layout then
-                        H.Size = Layout.H
-                        H.Position = Layout.HP
-                        H.AnchorPoint = Layout.HA
-                        H.BackgroundColor3 = CornerColor
-                        H.Visible = true
-                    end
-                    if V and Layout then
-                        V.Size = Layout.V
-                        V.Position = Layout.VP
-                        V.AnchorPoint = Layout.VA
-                        V.BackgroundColor3 = CornerColor
-                        V.Visible = true
-                    end
+                if Objects['BoxFill'].Visible then
+                    Objects['BoxFill'].Visible = false
                 end
             end
         else
