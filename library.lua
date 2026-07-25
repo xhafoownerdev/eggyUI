@@ -43,35 +43,53 @@ local function Is_KeyCode(Key)
 	return Is_Enum_Item(Key, Enum.KeyCode) and Key ~= Enum.KeyCode.Unknown
 end
 
-local Mouse_Bind_Types = {
-	[Enum.UserInputType.MouseButton1] = "mb1",
-	[Enum.UserInputType.MouseButton2] = "mb2",
-	[Enum.UserInputType.MouseButton3] = "mb3",
-	[Enum.UserInputType.MouseButton4] = "mb4",
-	[Enum.UserInputType.MouseButton5] = "mb5",
-}
+local function Safe_User_Input(Name)
+	local Ok, Value = pcall(function()
+		return Enum.UserInputType[Name]
+	end)
+	if Ok and Value ~= nil then
+		return Value
+	end
+	return nil
+end
+
+local Mouse_Bind_Types = {}
+do
+	local Map = {
+		{ Safe_User_Input("MouseButton1"), "mb1" },
+		{ Safe_User_Input("MouseButton2"), "mb2" },
+		{ Safe_User_Input("MouseButton3"), "mb3" },
+		{ Safe_User_Input("MouseButton4"), "mb4" },
+		{ Safe_User_Input("MouseButton5"), "mb5" },
+	}
+	for _, Entry in ipairs(Map) do
+		if Entry[1] then
+			Mouse_Bind_Types[Entry[1]] = Entry[2]
+		end
+	end
+end
 
 local Mouse_Bind_Aliases = {
-	mb1 = Enum.UserInputType.MouseButton1,
-	m1 = Enum.UserInputType.MouseButton1,
-	mouse1 = Enum.UserInputType.MouseButton1,
-	mousebutton1 = Enum.UserInputType.MouseButton1,
-	mb2 = Enum.UserInputType.MouseButton2,
-	m2 = Enum.UserInputType.MouseButton2,
-	mouse2 = Enum.UserInputType.MouseButton2,
-	mousebutton2 = Enum.UserInputType.MouseButton2,
-	mb3 = Enum.UserInputType.MouseButton3,
-	m3 = Enum.UserInputType.MouseButton3,
-	mouse3 = Enum.UserInputType.MouseButton3,
-	mousebutton3 = Enum.UserInputType.MouseButton3,
-	mb4 = Enum.UserInputType.MouseButton4,
-	m4 = Enum.UserInputType.MouseButton4,
-	mouse4 = Enum.UserInputType.MouseButton4,
-	mousebutton4 = Enum.UserInputType.MouseButton4,
-	mb5 = Enum.UserInputType.MouseButton5,
-	m5 = Enum.UserInputType.MouseButton5,
-	mouse5 = Enum.UserInputType.MouseButton5,
-	mousebutton5 = Enum.UserInputType.MouseButton5,
+	mb1 = Safe_User_Input("MouseButton1"),
+	m1 = Safe_User_Input("MouseButton1"),
+	mouse1 = Safe_User_Input("MouseButton1"),
+	mousebutton1 = Safe_User_Input("MouseButton1"),
+	mb2 = Safe_User_Input("MouseButton2"),
+	m2 = Safe_User_Input("MouseButton2"),
+	mouse2 = Safe_User_Input("MouseButton2"),
+	mousebutton2 = Safe_User_Input("MouseButton2"),
+	mb3 = Safe_User_Input("MouseButton3"),
+	m3 = Safe_User_Input("MouseButton3"),
+	mouse3 = Safe_User_Input("MouseButton3"),
+	mousebutton3 = Safe_User_Input("MouseButton3"),
+	mb4 = Safe_User_Input("MouseButton4"),
+	m4 = Safe_User_Input("MouseButton4"),
+	mouse4 = Safe_User_Input("MouseButton4"),
+	mousebutton4 = Safe_User_Input("MouseButton4"),
+	mb5 = Safe_User_Input("MouseButton5"),
+	m5 = Safe_User_Input("MouseButton5"),
+	mouse5 = Safe_User_Input("MouseButton5"),
+	mousebutton5 = Safe_User_Input("MouseButton5"),
 }
 
 local function Is_Mouse_Bind(Key)
