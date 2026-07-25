@@ -1200,8 +1200,16 @@ function EspLibrary:ApplyFontToObjects(Objects)
         local Label = Objects[Key]
 
         if Label and Label:IsA('TextLabel') then
+            local Size = self:GetTextSize(Key)
             Label.FontFace = Face
-            Label.TextSize = self:GetTextSize(Key)
+            Label.TextSize = Size
+
+            -- Keep bottom-stack rows at a stable height so distance/weapon never overlap
+            if Key == 'Distance' or Key == 'Weapon' then
+                Label.AutomaticSize = Enum.AutomaticSize.X
+                Label.Size = Dim2(0, 0, 0, Size + 3)
+                Label.TextYAlignment = Enum.TextYAlignment.Center
+            end
         end
     end
 end
@@ -1781,7 +1789,7 @@ function EspLibrary:InitEsp(Data, HolderParent)
             AutomaticSize = Enum.AutomaticSize.Y,
             Visible = true,
             BackgroundTransparency = 1,
-            Position = Dim2(0, -2, 1, 0),
+            Position = Dim2(0, -2, 1, 2),
             Size = Dim2(1, 4, 0, 0),
             BorderSizePixel = 0,
             BorderColor3 = Color3.fromRGB(0, 0, 0),
@@ -1904,8 +1912,10 @@ function EspLibrary:InitEsp(Data, HolderParent)
 
         self:CreateObjects("UIListLayout", {
             Parent = Objects["BottomTextHolder"],
+            FillDirection = Enum.FillDirection.Vertical,
             HorizontalAlignment = Enum.HorizontalAlignment.Center,
-            Padding = Dim(0, 2),
+            VerticalAlignment = Enum.VerticalAlignment.Top,
+            Padding = Dim(0, 3),
             SortOrder = Enum.SortOrder.LayoutOrder,
         })
 
@@ -1978,7 +1988,7 @@ function EspLibrary:InitEsp(Data, HolderParent)
 
         self:CreateObjects("UIPadding", {
             Parent = Objects["BottomTextHolder"],
-            PaddingTop = Dim(0, 1)
+            PaddingTop = Dim(0, 2),
         })
 
         self:CreateObjects("UIPadding", {
@@ -2140,35 +2150,22 @@ function EspLibrary:InitEsp(Data, HolderParent)
             })
             Objects["Corner_" .. i] = Corner
 
-            -- Outer black arms (matches BoxOutline thickness ~3)
-            Objects["CornerOutH_" .. i] = self:CreateObjects("Frame", {
-                Parent = Corner,
-                BackgroundTransparency = 0,
-                BorderSizePixel = 0,
-                BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-                Size = Dim2(1, 0, 0, 3),
-                Position = Dim2(0, 0, 0, 0),
-                ZIndex = 2,
-            })
-            Objects["CornerOutV_" .. i] = self:CreateObjects("Frame", {
-                Parent = Corner,
-                BackgroundTransparency = 0,
-                BorderSizePixel = 0,
-                BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-                Size = Dim2(0, 3, 1, 0),
-                Position = Dim2(0, 0, 0, 0),
-                ZIndex = 2,
-            })
-
-            -- Inner colored arms (matches BoxInline thickness ~1), sit on the inside edge
+            -- Colored arms with their own full black outline (UIStroke wraps every edge,
+            -- so the whole L reads as outline + inline exactly like the full box).
             Objects["CornerInH_" .. i] = self:CreateObjects("Frame", {
                 Parent = Corner,
                 BackgroundTransparency = 0,
                 BorderSizePixel = 0,
                 BackgroundColor3 = White,
-                Size = Dim2(1, -2, 0, 1),
-                Position = Dim2(0, 1, 0, 1),
+                Size = Dim2(1, 0, 0, 2),
+                Position = Dim2(0, 0, 0, 0),
                 ZIndex = 3,
+            })
+            self:CreateObjects("UIStroke", {
+                Parent = Objects["CornerInH_" .. i],
+                Thickness = 1,
+                Color = Color3.fromRGB(0, 0, 0),
+                LineJoinMode = Enum.LineJoinMode.Miter,
             })
             Objects["CornerInHGrad_" .. i] = self:CreateObjects("UIGradient", {
                 Parent = Objects["CornerInH_" .. i],
@@ -2185,9 +2182,15 @@ function EspLibrary:InitEsp(Data, HolderParent)
                 BackgroundTransparency = 0,
                 BorderSizePixel = 0,
                 BackgroundColor3 = White,
-                Size = Dim2(0, 1, 1, -2),
-                Position = Dim2(0, 1, 0, 1),
+                Size = Dim2(0, 2, 1, 0),
+                Position = Dim2(0, 0, 0, 0),
                 ZIndex = 3,
+            })
+            self:CreateObjects("UIStroke", {
+                Parent = Objects["CornerInV_" .. i],
+                Thickness = 1,
+                Color = Color3.fromRGB(0, 0, 0),
+                LineJoinMode = Enum.LineJoinMode.Miter,
             })
             Objects["CornerInVGrad_" .. i] = self:CreateObjects("UIGradient", {
                 Parent = Objects["CornerInV_" .. i],
@@ -2376,16 +2379,18 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Parent = Objects["BottomTextHolder"],
             FontFace = EspLibrary.SmallestPixel,
             TextSize = 9,
-            LayoutOrder = 2,
+            LayoutOrder = 1,
             TextColor3 = White,
             Text = "",
             TextXAlignment = Enum.TextXAlignment.Center,
+            TextYAlignment = Enum.TextYAlignment.Center,
             BorderSizePixel = 0,
             Visible = false,
             BackgroundTransparency = 1,
             ZIndex = 5,
-            AutomaticSize = Enum.AutomaticSize.XY,
-            Size = Dim2(0, 0, 0, 0),
+            -- Fixed line height so distance always owns its own row under the box
+            AutomaticSize = Enum.AutomaticSize.X,
+            Size = Dim2(0, 0, 0, 12),
         })
 
         self:CreateObjects("UIStroke", {
@@ -2495,7 +2500,7 @@ function EspLibrary:InitEsp(Data, HolderParent)
 
         Objects["WeaponStack"] = self:CreateObjects("Frame", {
             Parent = Objects["BottomTextHolder"],
-            LayoutOrder = 3,
+            LayoutOrder = 2,
             AutomaticSize = Enum.AutomaticSize.Y,
             Visible = false,
             BackgroundTransparency = 1,
@@ -2509,7 +2514,7 @@ function EspLibrary:InitEsp(Data, HolderParent)
             HorizontalAlignment = Enum.HorizontalAlignment.Center,
             VerticalAlignment = Enum.VerticalAlignment.Top,
             SortOrder = Enum.SortOrder.LayoutOrder,
-            Padding = Dim(0, 1),
+            Padding = Dim(0, 2),
         })
 
         Objects["WeaponIconHolder"] = self:CreateObjects("Frame", {
@@ -2560,12 +2565,14 @@ function EspLibrary:InitEsp(Data, HolderParent)
             TextColor3 = White,
             Text = "none",
             TextXAlignment = Enum.TextXAlignment.Center,
+            TextYAlignment = Enum.TextYAlignment.Center,
             BorderSizePixel = 0,
             Visible = false,
             BackgroundTransparency = 1,
             ZIndex = 5,
-            AutomaticSize = Enum.AutomaticSize.XY,
-            Size = Dim2(0, 0, 0, 0),
+            -- Fixed line height so weapon never sits on top of distance
+            AutomaticSize = Enum.AutomaticSize.X,
+            Size = Dim2(0, 0, 0, 12),
         })
 
         self:CreateObjects("UIStroke", {
@@ -2579,36 +2586,28 @@ function EspLibrary:InitEsp(Data, HolderParent)
     self:ApplyFontToObjects(Objects)
 end
 
--- Corner elbows: same dual stroke as full box, L-only at each corner.
--- Layout places a square corner unit; Out* = black outline, In* = colored inline on the inside edge.
+-- Corner elbows: each corner is an L of two colored arms, each fully outlined by its
+-- own black UIStroke. H/V arms share the corner so the outline wraps the entire L.
 local CornerElbowLayout = {
-    { -- TL ┌  (inside is down-right)
+    { -- TL ┌  (arms run along top + left edges)
         Pos = Dim2(0, 0, 0, 0), Anchor = NewVector2(0, 0),
-        OutH = { Pos = Dim2(0, 0, 0, 0), Size = Dim2(1, 0, 0, 3), Anchor = NewVector2(0, 0) },
-        OutV = { Pos = Dim2(0, 0, 0, 0), Size = Dim2(0, 3, 1, 0), Anchor = NewVector2(0, 0) },
-        InH  = { Pos = Dim2(0, 1, 0, 1), Size = Dim2(1, -1, 0, 1), Anchor = NewVector2(0, 0) },
-        InV  = { Pos = Dim2(0, 1, 0, 1), Size = Dim2(0, 1, 1, -1), Anchor = NewVector2(0, 0) },
+        H = { Pos = Dim2(0, 0, 0, 0), Size = Dim2(1, 0, 0, 2), Anchor = NewVector2(0, 0) },
+        V = { Pos = Dim2(0, 0, 0, 0), Size = Dim2(0, 2, 1, 0), Anchor = NewVector2(0, 0) },
     },
-    { -- TR ┐  (inside is down-left)
+    { -- TR ┐  (top + right edges)
         Pos = Dim2(1, 0, 0, 0), Anchor = NewVector2(1, 0),
-        OutH = { Pos = Dim2(0, 0, 0, 0), Size = Dim2(1, 0, 0, 3), Anchor = NewVector2(0, 0) },
-        OutV = { Pos = Dim2(1, 0, 0, 0), Size = Dim2(0, 3, 1, 0), Anchor = NewVector2(1, 0) },
-        InH  = { Pos = Dim2(0, 0, 0, 1), Size = Dim2(1, -1, 0, 1), Anchor = NewVector2(0, 0) },
-        InV  = { Pos = Dim2(1, -1, 0, 1), Size = Dim2(0, 1, 1, -1), Anchor = NewVector2(1, 0) },
+        H = { Pos = Dim2(0, 0, 0, 0), Size = Dim2(1, 0, 0, 2), Anchor = NewVector2(0, 0) },
+        V = { Pos = Dim2(1, 0, 0, 0), Size = Dim2(0, 2, 1, 0), Anchor = NewVector2(1, 0) },
     },
-    { -- BL └  (inside is up-right)
+    { -- BL └  (bottom + left edges)
         Pos = Dim2(0, 0, 1, 0), Anchor = NewVector2(0, 1),
-        OutH = { Pos = Dim2(0, 0, 1, 0), Size = Dim2(1, 0, 0, 3), Anchor = NewVector2(0, 1) },
-        OutV = { Pos = Dim2(0, 0, 0, 0), Size = Dim2(0, 3, 1, 0), Anchor = NewVector2(0, 0) },
-        InH  = { Pos = Dim2(0, 1, 1, -1), Size = Dim2(1, -1, 0, 1), Anchor = NewVector2(0, 1) },
-        InV  = { Pos = Dim2(0, 1, 0, 0), Size = Dim2(0, 1, 1, -1), Anchor = NewVector2(0, 0) },
+        H = { Pos = Dim2(0, 0, 1, 0), Size = Dim2(1, 0, 0, 2), Anchor = NewVector2(0, 1) },
+        V = { Pos = Dim2(0, 0, 0, 0), Size = Dim2(0, 2, 1, 0), Anchor = NewVector2(0, 0) },
     },
-    { -- BR ┘  (inside is up-left)
+    { -- BR ┘  (bottom + right edges)
         Pos = Dim2(1, 0, 1, 0), Anchor = NewVector2(1, 1),
-        OutH = { Pos = Dim2(0, 0, 1, 0), Size = Dim2(1, 0, 0, 3), Anchor = NewVector2(0, 1) },
-        OutV = { Pos = Dim2(1, 0, 0, 0), Size = Dim2(0, 3, 1, 0), Anchor = NewVector2(1, 0) },
-        InH  = { Pos = Dim2(0, 0, 1, -1), Size = Dim2(1, -1, 0, 1), Anchor = NewVector2(0, 1) },
-        InV  = { Pos = Dim2(1, -1, 0, 0), Size = Dim2(0, 1, 1, -1), Anchor = NewVector2(1, 0) },
+        H = { Pos = Dim2(0, 0, 1, 0), Size = Dim2(1, 0, 0, 2), Anchor = NewVector2(0, 1) },
+        V = { Pos = Dim2(1, 0, 0, 0), Size = Dim2(0, 2, 1, 0), Anchor = NewVector2(1, 0) },
     },
 }
 
@@ -2643,10 +2642,8 @@ local function Apply_Corner_Elbow(Objects, Index, Arm, GradCfg)
         ArmObj.Visible = true
     end
 
-    Place(Objects['CornerOutH_' .. Index], Layout.OutH)
-    Place(Objects['CornerOutV_' .. Index], Layout.OutV)
-    Place(Objects['CornerInH_' .. Index], Layout.InH)
-    Place(Objects['CornerInV_' .. Index], Layout.InV)
+    Place(Objects['CornerInH_' .. Index], Layout.H)
+    Place(Objects['CornerInV_' .. Index], Layout.V)
 
     -- Same gradient colors as full-box inline stroke
     ApplyTwoColorGradient(Objects['CornerInHGrad_' .. Index], GradCfg, 0)
