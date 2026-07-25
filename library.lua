@@ -43,6 +43,99 @@ local function Is_KeyCode(Key)
 	return Is_Enum_Item(Key, Enum.KeyCode) and Key ~= Enum.KeyCode.Unknown
 end
 
+local Mouse_Bind_Types = {
+	[Enum.UserInputType.MouseButton1] = "mb1",
+	[Enum.UserInputType.MouseButton2] = "mb2",
+	[Enum.UserInputType.MouseButton3] = "mb3",
+	[Enum.UserInputType.MouseButton4] = "mb4",
+	[Enum.UserInputType.MouseButton5] = "mb5",
+}
+
+local Mouse_Bind_Aliases = {
+	mb1 = Enum.UserInputType.MouseButton1,
+	m1 = Enum.UserInputType.MouseButton1,
+	mouse1 = Enum.UserInputType.MouseButton1,
+	mousebutton1 = Enum.UserInputType.MouseButton1,
+	mb2 = Enum.UserInputType.MouseButton2,
+	m2 = Enum.UserInputType.MouseButton2,
+	mouse2 = Enum.UserInputType.MouseButton2,
+	mousebutton2 = Enum.UserInputType.MouseButton2,
+	mb3 = Enum.UserInputType.MouseButton3,
+	m3 = Enum.UserInputType.MouseButton3,
+	mouse3 = Enum.UserInputType.MouseButton3,
+	mousebutton3 = Enum.UserInputType.MouseButton3,
+	mb4 = Enum.UserInputType.MouseButton4,
+	m4 = Enum.UserInputType.MouseButton4,
+	mouse4 = Enum.UserInputType.MouseButton4,
+	mousebutton4 = Enum.UserInputType.MouseButton4,
+	mb5 = Enum.UserInputType.MouseButton5,
+	m5 = Enum.UserInputType.MouseButton5,
+	mouse5 = Enum.UserInputType.MouseButton5,
+	mousebutton5 = Enum.UserInputType.MouseButton5,
+}
+
+local function Is_Mouse_Bind(Key)
+	return Mouse_Bind_Types[Key] ~= nil
+end
+
+local function Is_Bind(Key)
+	return Is_KeyCode(Key) or Is_Mouse_Bind(Key)
+end
+
+local function Bind_Name(Key)
+	if Is_Mouse_Bind(Key) then
+		return Mouse_Bind_Types[Key]
+	end
+	if Is_KeyCode(Key) then
+		return Key.Name:lower()
+	end
+	return "none"
+end
+
+local function Parse_Bind(Value)
+	if Is_Bind(Value) then
+		return Value
+	end
+	if Type_Of(Value) ~= "string" then
+		return Enum.KeyCode.Unknown
+	end
+	local Name = Value:gsub("%s+", ""):lower()
+	if Name == "" or Name == "none" or Name == "unknown" then
+		return Enum.KeyCode.Unknown
+	end
+	if Mouse_Bind_Aliases[Name] then
+		return Mouse_Bind_Aliases[Name]
+	end
+	local Ok, Found = pcall(function()
+		return Enum.KeyCode[Value]
+	end)
+	if Ok and Is_KeyCode(Found) then
+		return Found
+	end
+	for _, Item in ipairs(Enum.KeyCode:GetEnumItems()) do
+		if Item.Name:lower() == Name then
+			return Item
+		end
+	end
+	local Ok_Ui, Ui = pcall(function()
+		return Enum.UserInputType[Value]
+	end)
+	if Ok_Ui and Is_Mouse_Bind(Ui) then
+		return Ui
+	end
+	return Enum.KeyCode.Unknown
+end
+
+local function Input_Matches_Bind(Input, Bind)
+	if not Input or not Is_Bind(Bind) then
+		return false
+	end
+	if Is_Mouse_Bind(Bind) then
+		return Input.UserInputType == Bind
+	end
+	return Input.UserInputType == Enum.UserInputType.Keyboard and Input.KeyCode == Bind
+end
+
 local Clone_Ref = function(Obj)
 	return Obj
 end
@@ -788,9 +881,87 @@ local function Create_Animated_Title(Parent, Text_Size, Z)
 end
 
 --------------------------------------------------------------------
--- Custom cursor — sharp triangle only, periwinkle → light pink
+-- Custom cursor — exact eggyUI cursor.png, gradient tinted
 --------------------------------------------------------------------
-local Cursor_Image_Id = Icons.mouse_pointer
+local CURSOR_URL = "https://raw.githubusercontent.com/xhafoownerdev/eggyUI/main/cursor.png"
+
+local function Cursor_Http_Get(Url)
+	local Requesters = {
+		type(syn) == "table" and syn.request,
+		type(http) == "table" and http.request,
+		type(fluxus) == "table" and fluxus.request,
+		http_request,
+		request,
+	}
+	for _, Fn in ipairs(Requesters) do
+		if Is_Function(Fn) then
+			local Ok, Res = pcall(Fn, { Url = Url, Method = "GET" })
+			if Ok and type(Res) == "table" then
+				local Body = Res.Body or Res.body
+				if type(Body) == "string" and #Body > 0 then
+					return Body
+				end
+			end
+		end
+	end
+	local Ok, Body = pcall(function()
+		return game:HttpGet(Url)
+	end)
+	if Ok and type(Body) == "string" and #Body > 0 then
+		return Body
+	end
+	return nil
+end
+
+local function Resolve_Cursor_Image()
+	if not Is_Function(getcustomasset) or not Is_Function(writefile) then
+		return nil
+	end
+
+	local Path = (Library.Config_Folder or "eggytechy") .. "/cursor.png"
+	local function Load_Custom()
+		local Ok, Asset = pcall(getcustomasset, Path)
+		if Ok and type(Asset) == "string" and Asset ~= "" then
+			return Asset
+		end
+		return nil
+	end
+
+	-- Reuse the cached PNG when it's already a valid image on disk
+	if Is_Function(isfile) then
+		local Exists = false
+		pcall(function()
+			Exists = isfile(Path)
+		end)
+		if Exists then
+			local Valid = true
+			if Is_Function(readfile) then
+				local Ok_Read, Data = pcall(readfile, Path)
+				Valid = Ok_Read and type(Data) == "string" and Data:sub(1, 8) == "\137PNG\r\n\26\n"
+			end
+			if Valid then
+				local Cached = Load_Custom()
+				if Cached then
+					return Cached
+				end
+			end
+		end
+	end
+
+	local Data = Cursor_Http_Get(CURSOR_URL)
+	if type(Data) ~= "string" or Data:sub(1, 8) ~= "\137PNG\r\n\26\n" then
+		return nil
+	end
+
+	Ensure_Config_Folder()
+	local Write_Ok = pcall(writefile, Path, Data)
+	if not Write_Ok then
+		return nil
+	end
+	return Load_Custom()
+end
+
+local Cursor_Image_Id = Resolve_Cursor_Image() or Icons.mouse_pointer
 
 local Cursor_Root = Create("Frame", {
 	Parent = Screen_Gui,
@@ -1435,6 +1606,26 @@ local function Build_Controls(Container, Content)
 		function Api:Get()
 			return State
 		end
+
+		-- Inline extras: pickers sit on the same row, right-aligned
+		local Inline_Count = 0
+		local function Reserve_Inline_Slot(Width)
+			Inline_Count += 1
+			local Used = Inline_Count * (Width + 4)
+			Text_Label.Size = UDim2.new(1, -16 - Used, 1, 0)
+			Hit.Size = UDim2.new(1, -14 - Used, 1, 0)
+			return -Used
+		end
+
+		function Api:Add_Color_Picker(Picker_Options)
+			Picker_Options = Picker_Options or {}
+			Picker_Options.Attach = {
+				Holder = Holder,
+				X = Reserve_Inline_Slot(28),
+			}
+			return Controls:Add_Color_Picker(Picker_Options)
+		end
+
 		Register_Option(Flag, "Toggle", Api)
 		return Api
 	end
@@ -2315,42 +2506,49 @@ local function Build_Controls(Container, Content)
 		local Flag = Options.Flag
 		local Callback = Options.Callback or function() end
 		local Order = Next_Order(Container)
+		-- Attach = { Holder = <existing row frame>, X = <right-aligned offset> }
+		local Attach = Options.Attach
 
 		if Flag then
 			Library.Flags[Flag] = Default
 		end
 
-		local Holder = Create("Frame", {
-			Parent = Content,
-			BackgroundTransparency = 1,
-			Size = UDim2.new(1, -4, 0, 20),
-			LayoutOrder = Order,
-			ZIndex = 5,
-		})
+		local Holder
+		if Attach and Attach.Holder then
+			Holder = Attach.Holder
+		else
+			Holder = Create("Frame", {
+				Parent = Content,
+				BackgroundTransparency = 1,
+				Size = UDim2.new(1, -4, 0, 20),
+				LayoutOrder = Order,
+				ZIndex = 5,
+			})
 
-		Create("TextLabel", {
-			Parent = Holder,
-			BackgroundTransparency = 1,
-			Size = UDim2.new(1, -34, 1, 0),
-			FontFace = Fonts.Main,
-			Text = Options.Text or Options.Name or "color picker",
-			TextColor3 = Theme.Text,
-			TextSize = 12,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			ZIndex = 6,
-		})
+			Create("TextLabel", {
+				Parent = Holder,
+				BackgroundTransparency = 1,
+				Size = UDim2.new(1, -34, 1, 0),
+				FontFace = Fonts.Main,
+				Text = Options.Text or Options.Name or "color picker",
+				TextColor3 = Theme.Text,
+				TextSize = 12,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				ZIndex = 6,
+			})
+		end
 
 		-- Compact square-ish swatch (closer in, not wide)
 		local Swatch = Create("TextButton", {
 			Parent = Holder,
 			BackgroundColor3 = Default,
 			BorderSizePixel = 0,
-			Position = UDim2.new(1, -28, 0.5, -7),
+			Position = UDim2.new(1, (Attach and Attach.X) or -28, 0.5, -7),
 			Size = UDim2.new(0, 28, 0, 14),
 			Text = "",
 			AutoButtonColor = false,
 			ClipsDescendants = true,
-			ZIndex = 6,
+			ZIndex = 12,
 		})
 		Stroke(Swatch, Theme.Border_Light)
 		Shiny(Swatch, 9)
@@ -2786,10 +2984,7 @@ local function Build_Controls(Container, Content)
 		local Order = Next_Order(Container)
 
 		local function Key_Name(Key)
-			if not Is_KeyCode(Key) then
-				return "none"
-			end
-			return Key.Name:lower()
+			return Bind_Name(Key)
 		end
 
 		if Flag then
@@ -2804,14 +2999,14 @@ local function Build_Controls(Container, Content)
 			ZIndex = 5,
 		})
 
-		local Bind_Name = Options.Text or Options.Name or "key picker"
+		local Bind_Label = Options.Text or Options.Name or "key picker"
 
 		Create("TextLabel", {
 			Parent = Holder,
 			BackgroundTransparency = 1,
 			Size = UDim2.new(1, -28, 1, 0),
 			FontFace = Fonts.Main,
-			Text = Bind_Name,
+			Text = Bind_Label,
 			TextColor3 = Theme.Text,
 			TextSize = 12,
 			TextXAlignment = Enum.TextXAlignment.Left,
@@ -2868,12 +3063,13 @@ local function Build_Controls(Container, Content)
 			PaddingRight = UDim.new(0, 8),
 		})
 
-		local Current_Key = Default
+		local Current_Key = Parse_Bind(Default)
 		local Active = false
 		local Picking = false
+		local Pick_Ignore_Until = 0
 
 		local function Tip_Text()
-			return string.format("%s  ·  [%s]  ·  %s", Bind_Name, Key_Name(Current_Key), Mode:lower())
+			return string.format("%s  ·  [%s]  ·  %s", Bind_Label, Key_Name(Current_Key), Mode:lower())
 		end
 
 		local function Show_Tip()
@@ -2894,9 +3090,17 @@ local function Build_Controls(Container, Content)
 			Tip.Visible = false
 		end)
 
-		Library.Keybinds[Bind_Name] = { Key_Name = Key_Name(Current_Key), Active = false }
+		Library.Keybinds[Bind_Label] = { Key_Name = Key_Name(Current_Key), Active = false }
 		if Library.Keybind_Frame then
-			Library.Keybind_Frame:Add(Bind_Name, Key_Name(Current_Key))
+			Library.Keybind_Frame:Add(Bind_Label, Key_Name(Current_Key))
+		end
+
+		local function Sync_Keybind_List()
+			Library.Keybinds[Bind_Label] = Library.Keybinds[Bind_Label] or {}
+			Library.Keybinds[Bind_Label].Key_Name = Key_Name(Current_Key)
+			if Library.Keybind_Frame then
+				Library.Keybind_Frame:Add(Bind_Label, Key_Name(Current_Key))
+			end
 		end
 
 		local function Set_Active(Val)
@@ -2904,11 +3108,11 @@ local function Build_Controls(Container, Content)
 			if Flag then
 				Library.Flags[Flag] = Active
 			end
-			if Library.Keybinds[Bind_Name] then
-				Library.Keybinds[Bind_Name].Active = Active
+			if Library.Keybinds[Bind_Label] then
+				Library.Keybinds[Bind_Label].Active = Active
 			end
 			if Library.Keybind_Frame then
-				Library.Keybind_Frame:Set_Active(Bind_Name, Active)
+				Library.Keybind_Frame:Set_Active(Bind_Label, Active)
 			end
 			Callback(Active, Mode)
 		end
@@ -3063,26 +3267,36 @@ local function Build_Controls(Container, Content)
 
 		Connect(Keybind_Area.MouseButton1Click, function()
 			Picking = true
+			-- Ignore the click that started listening so MB1 isn't instantly bound
+			Pick_Ignore_Until = tick() + 0.2
 			Refresh_Key_Text()
 		end)
 
-		Connect(UserInputService.InputBegan, function(Input, Gp)
+		local function Apply_Picked(Bind)
+			Current_Key = Bind
+			Sync_Keybind_List()
+			Picking = false
+			Refresh_Key_Text()
+		end
+
+		Connect(UserInputService.InputBegan, function(Input)
 			if Picking then
-				if Input.UserInputType == Enum.UserInputType.Keyboard then
-					if Input.KeyCode == Enum.KeyCode.Escape then
-						Current_Key = Enum.KeyCode.Unknown
-					else
-						Current_Key = Input.KeyCode
-					end
-					Library.Keybinds[Bind_Name] = Library.Keybinds[Bind_Name] or {}
-					Library.Keybinds[Bind_Name].Key_Name = Key_Name(Current_Key)
-					if Library.Keybind_Frame then
-						Library.Keybind_Frame:Add(Bind_Name, Key_Name(Current_Key))
-					end
-					Picking = false
-					Refresh_Key_Text()
+				if tick() < Pick_Ignore_Until then
 					return
 				end
+				if Input.UserInputType == Enum.UserInputType.Keyboard then
+					if Input.KeyCode == Enum.KeyCode.Escape then
+						Apply_Picked(Enum.KeyCode.Unknown)
+					elseif Is_KeyCode(Input.KeyCode) then
+						Apply_Picked(Input.KeyCode)
+					end
+					return
+				end
+				if Is_Mouse_Bind(Input.UserInputType) then
+					Apply_Picked(Input.UserInputType)
+					return
+				end
+				return
 			end
 
 			-- Don't block on GameProcessed — only skip while typing in a text box
@@ -3090,7 +3304,7 @@ local function Build_Controls(Container, Content)
 				return
 			end
 
-			if Is_KeyCode(Current_Key) and Input.KeyCode == Current_Key then
+			if Input_Matches_Bind(Input, Current_Key) then
 				if Mode == "Hold" then
 					Set_Active(true)
 				elseif Mode == "Toggle" then
@@ -3102,18 +3316,16 @@ local function Build_Controls(Container, Content)
 		end)
 
 		Connect(UserInputService.InputEnded, function(Input)
-			if Mode == "Hold" and Is_KeyCode(Current_Key) and Input.KeyCode == Current_Key then
+			if Mode == "Hold" and Input_Matches_Bind(Input, Current_Key) then
 				Set_Active(false)
 			end
 		end)
 
 		local Api = {}
 		function Api:Set_Key(Key)
-			Current_Key = Key
+			Current_Key = Parse_Bind(Key)
 			Refresh_Key_Text()
-			if Library.Keybind_Frame then
-				Library.Keybind_Frame:Add(Bind_Name, Key_Name(Current_Key))
-			end
+			Sync_Keybind_List()
 		end
 		function Api:Set_Mode(M)
 			Mode = M
@@ -3131,34 +3343,9 @@ local function Build_Controls(Container, Content)
 					Refresh_Modes()
 				end
 				if Data.Key then
-					local Key = Enum.KeyCode.Unknown
-					if Is_Enum_Item(Data.Key, Enum.KeyCode) then
-						Key = Data.Key
-					elseif Type_Of(Data.Key) == "string" then
-						local Name = Data.Key
-						if Name ~= "" and Name:lower() ~= "none" and Name:lower() ~= "unknown" then
-							local Ok, Found = pcall(function()
-								return Enum.KeyCode[Name]
-							end)
-							if Ok and Found then
-								Key = Found
-							else
-								for _, Item in ipairs(Enum.KeyCode:GetEnumItems()) do
-									if Item.Name:lower() == Name:lower() then
-										Key = Item
-										break
-									end
-								end
-							end
-						end
-					end
-					Current_Key = Key
+					Current_Key = Parse_Bind(Data.Key)
 					Refresh_Key_Text()
-					Library.Keybinds[Bind_Name] = Library.Keybinds[Bind_Name] or {}
-					Library.Keybinds[Bind_Name].Key_Name = Key_Name(Current_Key)
-					if Library.Keybind_Frame then
-						Library.Keybind_Frame:Add(Bind_Name, Key_Name(Current_Key))
-					end
+					Sync_Keybind_List()
 				end
 				if Mode == "Always" then
 					Set_Active(true)
@@ -3167,19 +3354,15 @@ local function Build_Controls(Container, Content)
 				elseif Mode == "Hold" then
 					Set_Active(false)
 				end
-			elseif Is_Enum_Item(Data, Enum.KeyCode) then
+			elseif Is_Bind(Data) or Type_Of(Data) == "string" then
 				Api:Set_Key(Data)
 			elseif Type_Of(Data) == "boolean" then
 				Set_Active(Data)
 			end
 		end
 		function Api:Get()
-			local Key = "Unknown"
-			if Is_KeyCode(Current_Key) then
-				Key = Current_Key.Name
-			end
 			return {
-				Key = Key,
+				Key = Is_Bind(Current_Key) and Bind_Name(Current_Key) or "Unknown",
 				Mode = Mode,
 			}
 		end
