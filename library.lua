@@ -275,7 +275,6 @@ local Library = {
 	Open_Color_Picker = nil,
 	Copied_Color = nil,
 	Copied_Hex = nil,
-	Cursor_Enabled = false,
 	UI_Open = false,
 	Unloaded = false,
 	Config_Folder = "eggytechy",
@@ -818,7 +817,6 @@ local Screen_Gui = Protect_Gui(Create("ScreenGui", {
 
 -- Always-on-top layers (must beat color pickers ~220, tips ~250, etc.)
 local Z_NOTIFY = 50000
-local Z_CURSOR = 60000
 
 --------------------------------------------------------------------
 -- Animated brand title (slow smooth scrolling gradient)
@@ -929,182 +927,26 @@ local function Create_Animated_Title(Parent, Text_Size, Z)
 end
 
 --------------------------------------------------------------------
--- Custom cursor — exact eggyUI cursor.png, gradient tinted
+-- Cursor — always the normal Roblox mouse icon (no custom cursor)
 --------------------------------------------------------------------
-local CURSOR_URL = "https://raw.githubusercontent.com/xhafoownerdev/eggyUI/main/cursor.png"
-
-local function Cursor_Http_Get(Url)
-	local Requesters = {
-		type(syn) == "table" and syn.request,
-		type(http) == "table" and http.request,
-		type(fluxus) == "table" and fluxus.request,
-		http_request,
-		request,
-	}
-	for _, Fn in ipairs(Requesters) do
-		if Is_Function(Fn) then
-			local Ok, Res = pcall(Fn, { Url = Url, Method = "GET" })
-			if Ok and type(Res) == "table" then
-				local Body = Res.Body or Res.body
-				if type(Body) == "string" and #Body > 0 then
-					return Body
-				end
-			end
-		end
-	end
-	local Ok, Body = pcall(function()
-		return game:HttpGet(Url)
+local function Ensure_Normal_Cursor()
+	pcall(function()
+		UserInputService.MouseIconEnabled = true
 	end)
-	if Ok and type(Body) == "string" and #Body > 0 then
-		return Body
-	end
-	return nil
+	pcall(function()
+		UserInputService.OverrideMouseIconBehavior = Enum.OverrideMouseIconBehavior.None
+	end)
 end
 
-local function Resolve_Cursor_Image()
-	if not Is_Function(getcustomasset) or not Is_Function(writefile) then
-		return nil
-	end
-
-	local Path = (Library.Config_Folder or "eggytechy") .. "/cursor.png"
-	local function Load_Custom()
-		local Ok, Asset = pcall(getcustomasset, Path)
-		if Ok and type(Asset) == "string" and Asset ~= "" then
-			return Asset
-		end
-		return nil
-	end
-
-	-- Reuse the cached PNG when it's already a valid image on disk
-	if Is_Function(isfile) then
-		local Exists = false
-		pcall(function()
-			Exists = isfile(Path)
-		end)
-		if Exists then
-			local Valid = true
-			if Is_Function(readfile) then
-				local Ok_Read, Data = pcall(readfile, Path)
-				Valid = Ok_Read and type(Data) == "string" and Data:sub(1, 8) == "\137PNG\r\n\26\n"
-			end
-			if Valid then
-				local Cached = Load_Custom()
-				if Cached then
-					return Cached
-				end
-			end
-		end
-	end
-
-	local Data = Cursor_Http_Get(CURSOR_URL)
-	if type(Data) ~= "string" or Data:sub(1, 8) ~= "\137PNG\r\n\26\n" then
-		return nil
-	end
-
-	Ensure_Config_Folder()
-	local Write_Ok = pcall(writefile, Path, Data)
-	if not Write_Ok then
-		return nil
-	end
-	return Load_Custom()
+local function Set_Custom_Cursor(_Enabled)
+	-- Intentionally ignored: custom cursor was removed.
+	Ensure_Normal_Cursor()
 end
-
-local Cursor_Image_Id = Resolve_Cursor_Image() or Icons.mouse_pointer
-Library.Cursor_Image = Cursor_Image_Id
-
-local Cursor_Root = Create("Frame", {
-	Parent = Screen_Gui,
-	Name = "Custom_Cursor",
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	Size = UDim2.new(0, 22, 0, 26),
-	-- Tip sits on the mouse position
-	AnchorPoint = Vector2.new(0.06, 0.04),
-	Visible = false,
-	ZIndex = Z_CURSOR,
-})
-
-local function Make_Cursor_Layer(Z, Size_Pad, Pos_Pad, Color, Transparency)
-	return Create("ImageLabel", {
-		Parent = Cursor_Root,
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		Image = Cursor_Image_Id or "",
-		ImageColor3 = Color,
-		ImageTransparency = Transparency or 0,
-		Size = UDim2.new(1, Size_Pad, 1, Size_Pad),
-		Position = UDim2.new(0, Pos_Pad, 0, Pos_Pad),
-		ZIndex = Z,
-		ScaleType = Enum.ScaleType.Fit,
-		Visible = Cursor_Image_Id ~= nil,
-	})
-end
-
--- Thin dark edge for definition
-local Cursor_Rim = Make_Cursor_Layer(Z_CURSOR + 1, 2, -1, Color3.fromRGB(18, 16, 26), 0.25)
-
--- Solid triangle with periwinkle (tip) → light pink (base)
-local Cursor_Fill = Make_Cursor_Layer(Z_CURSOR + 2, 0, 0, Color3.fromRGB(255, 255, 255), 0)
-local Cursor_Grad = Create("UIGradient", {
-	Parent = Cursor_Fill,
-	Rotation = 118,
-	Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, Theme.Accent_End),
-		ColorSequenceKeypoint.new(0.5, Theme.Accent_Mid),
-		ColorSequenceKeypoint.new(1, Theme.Accent),
-	}),
-})
-
--- Bright tip highlight (keeps it looking sharp/pointy)
-local Cursor_Tip = Make_Cursor_Layer(Z_CURSOR + 3, -2, 1, Color3.fromRGB(255, 255, 255), 0.55)
-Create("UIGradient", {
-	Parent = Cursor_Tip,
-	Rotation = 118,
-	Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0),
-		NumberSequenceKeypoint.new(0.28, 0.65),
-		NumberSequenceKeypoint.new(1, 1),
-	}),
-})
-
-local Cursor_Grad_Scroll = 0
-Connect(RunService.Heartbeat, function(Dt)
-	if not Library.Cursor_Enabled or not Cursor_Grad.Parent then
-		return
-	end
-	Cursor_Grad_Scroll = (Cursor_Grad_Scroll + (Dt or 0) * 0.4) % 1
-	local T = Cursor_Grad_Scroll
-	local function Mix(A, B, Alpha)
-		return Color3.new(
-			A.R + (B.R - A.R) * Alpha,
-			A.G + (B.G - A.G) * Alpha,
-			A.B + (B.B - A.B) * Alpha
-		)
-	end
-	local A1 = math.sin(T * math.pi * 2) * 0.5 + 0.5
-	local A2 = math.sin((T + 0.33) * math.pi * 2) * 0.5 + 0.5
-	Cursor_Grad.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, Mix(Theme.Accent_End, Theme.Accent_Mid, A1)),
-		ColorSequenceKeypoint.new(0.5, Mix(Theme.Accent_Mid, Theme.Accent, A2)),
-		ColorSequenceKeypoint.new(1, Mix(Theme.Accent, Theme.Accent_End, 1 - A1)),
-	})
-end)
-
-local function Set_Custom_Cursor(Enabled)
-	Library.Cursor_Enabled = Enabled and true or false
-	Cursor_Root.Visible = Library.Cursor_Enabled
-	UserInputService.MouseIconEnabled = not Library.Cursor_Enabled
-end
-
-Connect(RunService.RenderStepped, function()
-	if not Library.Cursor_Enabled then
-		return
-	end
-	local Pos = Get_Mouse_Location()
-	Cursor_Root.Position = UDim2.new(0, Pos.X, 0, Pos.Y)
-end)
 
 Library.Set_Custom_Cursor = Set_Custom_Cursor
+Library.Cursor_Enabled = false
+Library.Cursor_Image = nil
+Ensure_Normal_Cursor()
 
 --------------------------------------------------------------------
 -- Watermark
@@ -3859,13 +3701,16 @@ function Library:Create_Window(Options)
 		local Open = Window_Frame.Visible
 		Library.UI_Open = Open
 		Modal_Sink.Visible = Open
-		Set_Custom_Cursor(Open)
+		Ensure_Normal_Cursor()
 		if Open then
 			pcall(function()
 				UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 			end)
 			pcall(function()
 				UserInputService.OverrideMouseIconBehavior = Enum.OverrideMouseIconBehavior.None
+			end)
+			pcall(function()
+				UserInputService.MouseIconEnabled = true
 			end)
 		end
 	end
@@ -3877,6 +3722,9 @@ function Library:Create_Window(Options)
 		if Window_Frame.Visible then
 			pcall(function()
 				UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+			end)
+			pcall(function()
+				UserInputService.MouseIconEnabled = true
 			end)
 		end
 	end)
