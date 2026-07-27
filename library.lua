@@ -358,32 +358,13 @@ end
 --------------------------------------------------------------------
 -- Config helpers (eggytechy folder)
 --------------------------------------------------------------------
-local function Register_Option(Flag, Type, Api, Default)
+local function Register_Option(Flag, Type, Api)
 	if not Flag or not Api then
 		return
-	end
-	-- Deep-copy table defaults so MultiDropdown defaults aren't shared/mutated.
-	local Stored_Default = Default
-	if Type_Of(Default) == "table" then
-		Stored_Default = {}
-		if Type == "MultiDropdown" then
-			for I, V in ipairs(Default) do
-				Stored_Default[I] = V
-			end
-		elseif Type == "Keybind" then
-			Stored_Default.Key = Default.Key or "Unknown"
-			Stored_Default.Mode = Default.Mode or "Toggle"
-			Stored_Default.Active = false
-		else
-			for K, V in pairs(Default) do
-				Stored_Default[K] = V
-			end
-		end
 	end
 	Library.Options[Flag] = {
 		Type = Type,
 		Api = Api,
-		Default = Stored_Default,
 	}
 end
 
@@ -450,28 +431,18 @@ local function Serialize_Value(Type, Value)
 		return Value
 	elseif Type == "Keybind" then
 		if Type_Of(Value) == "table" then
-			local Mode = Value.Mode or "Toggle"
 			return {
 				Key = Value.Key or "Unknown",
-				Mode = Mode,
-				-- Never persist Toggle/Hold as active — that would turn binds on at load.
-				Active = Mode == "Always",
+				Mode = Value.Mode or "Toggle",
+				Active = Value.Active == true,
 			}
 		end
-		return { Key = "Unknown", Mode = "Toggle", Active = false }
+		return { Key = "Unknown", Mode = "Toggle" }
 	elseif Type == "MultiDropdown" then
 		if Type_Of(Value) == "table" then
 			local Out = {}
 			for i, V in ipairs(Value) do
 				Out[i] = V
-			end
-			-- Also accept set-style tables { ["me"] = true }
-			if #Out == 0 then
-				for K, V in pairs(Value) do
-					if Type_Of(K) == "string" and V == true then
-						Out[#Out + 1] = K
-					end
-				end
 			end
 			return Out
 		end
@@ -497,105 +468,11 @@ local function Deserialize_Value(Type, Value)
 		return Theme.Accent
 	elseif Type == "Keybind" then
 		if Type_Of(Value) == "table" then
-			local Mode = Value.Mode or "Toggle"
-			return {
-				Key = Value.Key or "Unknown",
-				Mode = Mode,
-				Active = Mode == "Always",
-			}
+			return Value
 		end
-		return { Key = "Unknown", Mode = "Toggle", Active = false }
-	elseif Type == "Toggle" then
-		return Value == true
-	elseif Type == "MultiDropdown" then
-		if Type_Of(Value) ~= "table" then
-			return {}
-		end
-		local Out = {}
-		for I, V in ipairs(Value) do
-			Out[I] = V
-		end
-		if #Out == 0 then
-			for K, V in pairs(Value) do
-				if Type_Of(K) == "string" and V == true then
-					Out[#Out + 1] = K
-				end
-			end
-		end
-		return Out
+		return { Key = "Unknown", Mode = "Toggle" }
 	end
 	return Value
-end
-
-local CONFIG_SKIP_FLAGS = {
-	config_list = true,
-	config_name = true,
-}
-
-local function Copy_Default(Opt)
-	local Def = Opt and Opt.Default
-	local Type = Opt and Opt.Type
-	if Type == "Toggle" then
-		return Def == true
-	elseif Type == "Color" then
-		if Is_Color3(Def) then
-			return Def
-		end
-		return Theme.Accent
-	elseif Type == "MultiDropdown" then
-		local Out = {}
-		if Type_Of(Def) == "table" then
-			for I, V in ipairs(Def) do
-				Out[I] = V
-			end
-		end
-		return Out
-	elseif Type == "Keybind" then
-		if Type_Of(Def) == "table" then
-			return {
-				Key = Def.Key or "Unknown",
-				Mode = Def.Mode or "Toggle",
-				Active = (Def.Mode == "Always"),
-			}
-		end
-		return { Key = "Unknown", Mode = "Toggle", Active = false }
-	elseif Type == "Dropdown" or Type == "Input" or Type == "Slider" then
-		return Def
-	end
-	return Def
-end
-
--- Baseline before applying a config file:
--- toggles/multis off so Default=true controls don't turn features on by themselves;
--- colors/sliders/dropdowns use create defaults then get overwritten by saved values.
-local function Load_Baseline(Opt)
-	local Type = Opt and Opt.Type
-	if Type == "Toggle" then
-		return false
-	elseif Type == "MultiDropdown" then
-		return {}
-	elseif Type == "Keybind" then
-		local Def = Copy_Default(Opt)
-		Def.Active = Def.Mode == "Always"
-		return Def
-	end
-	return Copy_Default(Opt)
-end
-
-local function Config_Callback_Priority(Type)
-	-- Toggles first so feature on/off settles before dependent color/slider callbacks.
-	if Type == "Toggle" then
-		return 1
-	elseif Type == "Dropdown" or Type == "MultiDropdown" then
-		return 2
-	elseif Type == "Slider" or Type == "Input" then
-		return 3
-	elseif Type == "Color" then
-		return 4
-	elseif Type == "Keybind" then
-		return 5
-	end
-	return 9
 end
 
 function Library:Get_Config_List()
@@ -631,35 +508,18 @@ function Library:Save_Config(Name)
 	}
 	-- Prefer live Option Api:Get values (toggles, colors, keybinds, etc.)
 	for Flag, Opt in pairs(Library.Options) do
-		if not CONFIG_SKIP_FLAGS[Flag] then
+		if Flag ~= "config_list" then
 			local Ok, Value = pcall(function()
 				return Opt.Api:Get()
 			end)
-			if Ok and Value ~= nil then
+			if Ok then
 				Data.flags[Flag] = Serialize_Value(Opt.Type, Value)
-				-- Keep Flags mirror in sync for anything reading Library.Flags directly.
-				if Opt.Type == "Color" and Is_Color3(Value) then
-					Library.Flags[Flag] = Value
-				elseif Opt.Type ~= "Keybind" then
-					Library.Flags[Flag] = Value
-				end
-			elseif Library.Flags[Flag] ~= nil then
-				local Fallback = Library.Flags[Flag]
-				if Is_Color3(Fallback) then
-					Data.flags[Flag] = Serialize_Value("Color", Fallback)
-				elseif Type_Of(Fallback) == "table" and Fallback.Key and Fallback.Mode then
-					Data.flags[Flag] = Serialize_Value("Keybind", Fallback)
-				elseif Type_Of(Fallback) == "table" then
-					Data.flags[Flag] = Serialize_Value("MultiDropdown", Fallback)
-				else
-					Data.flags[Flag] = Fallback
-				end
 			end
 		end
 	end
 	-- Also persist any Flags that never registered an Option (or got out of sync)
 	for Flag, Value in pairs(Library.Flags) do
-		if not CONFIG_SKIP_FLAGS[Flag] and Data.flags[Flag] == nil then
+		if Flag ~= "config_list" and Data.flags[Flag] == nil then
 			if Is_Color3(Value) then
 				Data.flags[Flag] = Serialize_Value("Color", Value)
 			elseif Type_Of(Value) == "table" and Value.Key and Value.Mode then
@@ -706,39 +566,20 @@ function Library:Load_Config(Name)
 		return false, "invalid config"
 	end
 	local Flags = Data.flags or Data
+	local Loaded_Options = {}
 	Library._Loading_Config = true
-
-	-- 1) Quiet baseline: toggles/multis OFF (not create-Default), other controls
-	--    to create defaults. Stops Default=true ESP/etc from turning on by themselves.
-	for Flag, Opt in pairs(Library.Options) do
-		if not CONFIG_SKIP_FLAGS[Flag] and Opt.Api and Opt.Api.Set then
-			local Baseline = Load_Baseline(Opt)
-			pcall(function()
-				Opt.Api:Set(Baseline, false)
-			end)
-		end
-	end
-
-	-- 2) Apply every saved flag (silent) — toggles, sliders, colors, dropdowns, keybinds.
 	for Flag, Value in pairs(Flags) do
-		if Flag ~= "__eggtech" and Flag ~= "__name" and not CONFIG_SKIP_FLAGS[Flag] then
+		if Flag ~= "__eggtech" and Flag ~= "__name" and Flag ~= "config_list" then
 			local Opt = Library.Options[Flag]
 			if Opt and Opt.Api and Opt.Api.Set then
 				local Val = Deserialize_Value(Opt.Type, Value)
 				pcall(function()
+					-- First pass is silent so every value exists before any callback runs.
 					Opt.Api:Set(Val, false)
 				end)
-				-- Guarantee Flags mirror even if a control Set path skipped it.
-				if Opt.Type == "Toggle" then
-					Library.Flags[Flag] = Val == true
-				elseif Opt.Type == "Color" and Is_Color3(Val) then
-					Library.Flags[Flag] = Val
-				elseif Opt.Type == "Slider" or Opt.Type == "Input" or Opt.Type == "Dropdown" then
-					Library.Flags[Flag] = Val
-				elseif Opt.Type == "MultiDropdown" then
-					Library.Flags[Flag] = Val
-				end
+				Loaded_Options[#Loaded_Options + 1] = Opt
 			else
+				-- Raw flag (or option missing) — deserialize color tables
 				if Type_Of(Value) == "table" and Value.R and Value.G and Value.B and not Value.Key then
 					Library.Flags[Flag] = Deserialize_Value("Color", Value)
 				else
@@ -747,28 +588,12 @@ function Library:Load_Config(Name)
 			end
 		end
 	end
-
-	-- 3) Fire callbacks in priority order against the fully restored state.
-	local Ordered = {}
-	for Flag, Opt in pairs(Library.Options) do
-		if not CONFIG_SKIP_FLAGS[Flag] and Opt.Api and Opt.Api.Set and Opt.Api.Get then
-			Ordered[#Ordered + 1] = { Flag = Flag, Opt = Opt }
-		end
-	end
-	table.sort(Ordered, function(A, B)
-		local PA = Config_Callback_Priority(A.Opt.Type)
-		local PB = Config_Callback_Priority(B.Opt.Type)
-		if PA ~= PB then
-			return PA < PB
-		end
-		return tostring(A.Flag) < tostring(B.Flag)
-	end)
-	for _, Entry in ipairs(Ordered) do
+	-- Second pass fires each control callback against the fully loaded state.
+	for _, Opt in ipairs(Loaded_Options) do
 		pcall(function()
-			Entry.Opt.Api:Set(Entry.Opt.Api:Get(), true)
+			Opt.Api:Set(Opt.Api:Get(), true)
 		end)
 	end
-
 	if Library.Options.config_name and Library.Options.config_name.Api then
 		pcall(function()
 			Library.Options.config_name.Api:Set(Clean, false)
@@ -1878,7 +1703,7 @@ local function Build_Controls(Container, Content)
 			return Controls:Add_Color_Picker(Picker_Options)
 		end
 
-		Register_Option(Flag, "Toggle", Api, Default)
+		Register_Option(Flag, "Toggle", Api)
 		return Api
 	end
 
@@ -2150,7 +1975,7 @@ local function Build_Controls(Container, Content)
 		function Api:Get()
 			return Value
 		end
-		Register_Option(Flag, "Slider", Api, Default)
+		Register_Option(Flag, "Slider", Api)
 		return Api
 	end
 
@@ -2418,7 +2243,7 @@ local function Build_Controls(Container, Content)
 		function Api:Get()
 			return Box.Text
 		end
-		Register_Option(Flag, "Input", Api, Default)
+		Register_Option(Flag, "Input", Api)
 		return Api
 	end
 
@@ -2750,7 +2575,7 @@ local function Build_Controls(Container, Content)
 		function Api:Close()
 			Close()
 		end
-		Register_Option(Flag, Multi and "MultiDropdown" or "Dropdown", Api, Default)
+		Register_Option(Flag, Multi and "MultiDropdown" or "Dropdown", Api)
 		return Api
 	end
 
@@ -3233,7 +3058,7 @@ local function Build_Controls(Container, Content)
 		function Api:Close()
 			Close_Picker()
 		end
-		Register_Option(Flag, "Color", Api, Default)
+		Register_Option(Flag, "Color", Api)
 		return Api
 	end
 
@@ -3638,11 +3463,7 @@ local function Build_Controls(Container, Content)
 		function Api:Get_Key()
 			return Current_Key
 		end
-		Register_Option(Flag, "Keybind", Api, {
-			Key = Is_Bind(Default) and Bind_Name(Default) or (Type_Of(Default) == "string" and Default or "Unknown"),
-			Mode = Mode,
-			Active = false,
-		})
+		Register_Option(Flag, "Keybind", Api)
 		return Api
 	end
 
