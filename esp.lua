@@ -1313,7 +1313,10 @@ local function AreChamsFullyApplied(ChamsData, Character)
     end
 
     if ChamsData.Adorn then
-        return ChamsData.Character == Character
+        local Visual = Character:FindFirstChild('ClientBundleOverlayOther')
+            or Character:FindFirstChild('ClientBundleOverlay')
+            or Character
+        return ChamsData.Character == Character and ChamsData.VisualRoot == Visual
     end
 
     return false
@@ -1402,15 +1405,77 @@ local function RemoveAdorns(Part)
     end
 end
 
+local function GetChamsVisualRoot(Character)
+    if not Character then
+        return nil
+    end
+
+    -- Prefer client bundle overlays so chams sit on the visible custom model.
+    local Other = Character:FindFirstChild('ClientBundleOverlayOther')
+    if Other and Other:IsA('Model') then
+        return Other
+    end
+
+    local Self = Character:FindFirstChild('ClientBundleOverlay')
+    if Self and Self:IsA('Model') then
+        return Self
+    end
+
+    return Character
+end
+
+local function ForEachChamsPart(Root, Callback)
+    if not Root then
+        return
+    end
+
+    local IsBundle = Root.Name == 'ClientBundleOverlayOther' or Root.Name == 'ClientBundleOverlay'
+
+    if IsBundle then
+        for _, Part in ipairs(Root:GetDescendants()) do
+            if not Part:IsA('BasePart') then
+                continue
+            end
+            if Part.Name == 'HumanoidRootPart' then
+                continue
+            end
+            if Part.Transparency >= 1 then
+                continue
+            end
+            local Ltm = 0
+            pcall(function()
+                Ltm = Part.LocalTransparencyModifier
+            end)
+            if Ltm >= 0.99 then
+                continue
+            end
+            Callback(Part)
+        end
+        return
+    end
+
+    for _, Part in ipairs(Root:GetChildren()) do
+        if Part:IsA('BasePart') and Part.Transparency < 1 then
+            Callback(Part)
+        end
+    end
+end
+
 local function ClearCharacterAdorns(Character)
     if not Character then
         return
     end
 
-    for _, Part in ipairs(Character:GetChildren()) do
-        if Part:IsA('BasePart') then
-            RemoveAdorns(Part)
-        end
+    ForEachChamsPart(Character, RemoveAdorns)
+
+    local Other = Character:FindFirstChild('ClientBundleOverlayOther')
+    if Other then
+        ForEachChamsPart(Other, RemoveAdorns)
+    end
+
+    local Self = Character:FindFirstChild('ClientBundleOverlay')
+    if Self then
+        ForEachChamsPart(Self, RemoveAdorns)
     end
 end
 
@@ -1489,23 +1554,22 @@ local function SetAdornChamsColors(Character, MainColor, GlowColor, FillTrans, G
     if FillTrans == nil then FillTrans = 0.5 end
     if GlowTrans == nil then GlowTrans = -1 end
 
-    for _, Part in ipairs(Character:GetChildren()) do
-        if Part:IsA('BasePart') then
-            local Children = Part:GetChildren()
+    local Root = GetChamsVisualRoot(Character) or Character
+    ForEachChamsPart(Root, function(Part)
+        local Children = Part:GetChildren()
 
-            for i = 1, #Children do
-                local Obj = Children[i]
+        for i = 1, #Children do
+            local Obj = Children[i]
 
-                if Obj.Name == 'ChamsFill' then
-                    Obj.Color3 = MainColor
-                    Obj.Transparency = FillTrans
-                elseif Obj.Name == 'ChamsGlow' then
-                    Obj.Color3 = GlowBoost
-                    Obj.Transparency = GlowTrans
-                end
+            if Obj.Name == 'ChamsFill' then
+                Obj.Color3 = MainColor
+                Obj.Transparency = FillTrans
+            elseif Obj.Name == 'ChamsGlow' then
+                Obj.Color3 = GlowBoost
+                Obj.Transparency = GlowTrans
             end
         end
-    end
+    end)
 end
 
 local function ResolveGlowTransparency(GlowOpacityOrTrans)
@@ -1550,11 +1614,8 @@ local function ApplyAdornChamsToCharacter(Character, MainColor, GlowColor, Trans
         XRayShading = Enum.AdornShading.XRayShaded
     end)
 
-    for _, Part in ipairs(Character:GetChildren()) do
-        if not Part:IsA('BasePart') or Part.Transparency >= 1 then
-            continue
-        end
-
+    local Root = GetChamsVisualRoot(Character) or Character
+    ForEachChamsPart(Root, function(Part)
         RemoveAdorns(Part)
 
         local IsHead = Part.Name == 'Head' or Part.Name == 'FakeHead'
@@ -1581,7 +1642,7 @@ local function ApplyAdornChamsToCharacter(Character, MainColor, GlowColor, Trans
             FillPad,
             { Name = 'ChamsFill' }
         )
-    end
+    end)
 end
 
 function EspLibrary:RemoveChams(Data)
@@ -1657,6 +1718,7 @@ function EspLibrary:SetupChams(Data, Character)
     Data['Chams'] = {
         Adorn = true,
         Character = Character,
+        VisualRoot = GetChamsVisualRoot(Character),
         GlowEnabled = GlowEnabled,
         FillTrans = FillTrans,
         GlowTrans = GlowTrans,
@@ -1721,6 +1783,7 @@ function EspLibrary:UpdateChams(Data)
 
         local NeedsRefresh = not ChamsData
             or ChamsData.Character ~= Data['Character']
+            or ChamsData.VisualRoot ~= GetChamsVisualRoot(Data['Character'])
             or ChamsData.GlowEnabled ~= GlowEnabled
             or ChamsData.FillTrans ~= FillTrans
             or ChamsData.GlowTrans ~= GlowTrans
