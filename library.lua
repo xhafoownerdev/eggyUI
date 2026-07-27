@@ -1,3 +1,9 @@
+--[[
+	eggtech UI Library
+	SnakeCase API | Squared | 700x400
+	Theme: light pink / periwinkle gradient accents
+	Font: BuilderSansExtraBold
+]]
 
 -- Use Lua's `type` to validate `typeof` — a polluted typeof table causes "attempt to call a table value"
 local Type_Of = type
@@ -352,14 +358,49 @@ end
 --------------------------------------------------------------------
 -- Config helpers (eggytechy folder)
 --------------------------------------------------------------------
-local function Register_Option(Flag, Type, Api)
+local function Register_Option(Flag, Type, Api, Default)
 	if not Flag or not Api then
 		return
+	end
+	-- Deep-copy table defaults so MultiDropdown defaults aren't shared/mutated.
+	local Stored_Default = Default
+	if Type_Of(Default) == "table" then
+		Stored_Default = {}
+		if Type == "MultiDropdown" then
+			for I, V in ipairs(Default) do
+				Stored_Default[I] = V
+			end
+		elseif Type == "Keybind" then
+			Stored_Default.Key = Default.Key or "Unknown"
+			Stored_Default.Mode = Default.Mode or "Toggle"
+			Stored_Default.Active = false
+		else
+			for K, V in pairs(Default) do
+				Stored_Default[K] = V
+			end
+		end
 	end
 	Library.Options[Flag] = {
 		Type = Type,
 		Api = Api,
+		Default = Stored_Default,
 	}
+end
+
+-- Set a registered option (or raw Flag) without relying on callers knowing the API.
+-- Fire = false skips control callbacks (used when applying presets / loading configs).
+function Library:Set_Flag(Flag, Value, Fire)
+	if not Flag then
+		return
+	end
+	local Opt = Library.Options[Flag]
+	if Opt and Opt.Api and Opt.Api.Set then
+		pcall(function()
+			Opt.Api:Set(Value, Fire)
+		end)
+		return
+	end
+	Library.Flags[Flag] = Value
 end
 
 local function Config_Path(Name)
@@ -409,17 +450,28 @@ local function Serialize_Value(Type, Value)
 		return Value
 	elseif Type == "Keybind" then
 		if Type_Of(Value) == "table" then
+			local Mode = Value.Mode or "Toggle"
 			return {
 				Key = Value.Key or "Unknown",
-				Mode = Value.Mode or "Toggle",
+				Mode = Mode,
+				-- Never persist Toggle/Hold as active — that would turn binds on at load.
+				Active = Mode == "Always",
 			}
 		end
-		return { Key = "Unknown", Mode = "Toggle" }
+		return { Key = "Unknown", Mode = "Toggle", Active = false }
 	elseif Type == "MultiDropdown" then
 		if Type_Of(Value) == "table" then
 			local Out = {}
 			for i, V in ipairs(Value) do
 				Out[i] = V
+			end
+			-- Also accept set-style tables { ["me"] = true }
+			if #Out == 0 then
+				for K, V in pairs(Value) do
+					if Type_Of(K) == "string" and V == true then
+						Out[#Out + 1] = K
+					end
+				end
 			end
 			return Out
 		end
@@ -445,11 +497,105 @@ local function Deserialize_Value(Type, Value)
 		return Theme.Accent
 	elseif Type == "Keybind" then
 		if Type_Of(Value) == "table" then
-			return Value
+			local Mode = Value.Mode or "Toggle"
+			return {
+				Key = Value.Key or "Unknown",
+				Mode = Mode,
+				Active = Mode == "Always",
+			}
 		end
-		return { Key = "Unknown", Mode = "Toggle" }
+		return { Key = "Unknown", Mode = "Toggle", Active = false }
+	elseif Type == "Toggle" then
+		return Value == true
+	elseif Type == "MultiDropdown" then
+		if Type_Of(Value) ~= "table" then
+			return {}
+		end
+		local Out = {}
+		for I, V in ipairs(Value) do
+			Out[I] = V
+		end
+		if #Out == 0 then
+			for K, V in pairs(Value) do
+				if Type_Of(K) == "string" and V == true then
+					Out[#Out + 1] = K
+				end
+			end
+		end
+		return Out
 	end
 	return Value
+end
+
+local CONFIG_SKIP_FLAGS = {
+	config_list = true,
+	config_name = true,
+}
+
+local function Copy_Default(Opt)
+	local Def = Opt and Opt.Default
+	local Type = Opt and Opt.Type
+	if Type == "Toggle" then
+		return Def == true
+	elseif Type == "Color" then
+		if Is_Color3(Def) then
+			return Def
+		end
+		return Theme.Accent
+	elseif Type == "MultiDropdown" then
+		local Out = {}
+		if Type_Of(Def) == "table" then
+			for I, V in ipairs(Def) do
+				Out[I] = V
+			end
+		end
+		return Out
+	elseif Type == "Keybind" then
+		if Type_Of(Def) == "table" then
+			return {
+				Key = Def.Key or "Unknown",
+				Mode = Def.Mode or "Toggle",
+				Active = (Def.Mode == "Always"),
+			}
+		end
+		return { Key = "Unknown", Mode = "Toggle", Active = false }
+	elseif Type == "Dropdown" or Type == "Input" or Type == "Slider" then
+		return Def
+	end
+	return Def
+end
+
+-- Baseline before applying a config file:
+-- toggles/multis off so Default=true controls don't turn features on by themselves;
+-- colors/sliders/dropdowns use create defaults then get overwritten by saved values.
+local function Load_Baseline(Opt)
+	local Type = Opt and Opt.Type
+	if Type == "Toggle" then
+		return false
+	elseif Type == "MultiDropdown" then
+		return {}
+	elseif Type == "Keybind" then
+		local Def = Copy_Default(Opt)
+		Def.Active = Def.Mode == "Always"
+		return Def
+	end
+	return Copy_Default(Opt)
+end
+
+local function Config_Callback_Priority(Type)
+	-- Toggles first so feature on/off settles before dependent color/slider callbacks.
+	if Type == "Toggle" then
+		return 1
+	elseif Type == "Dropdown" or Type == "MultiDropdown" then
+		return 2
+	elseif Type == "Slider" or Type == "Input" then
+		return 3
+	elseif Type == "Color" then
+		return 4
+	elseif Type == "Keybind" then
+		return 5
+	end
+	return 9
 end
 
 function Library:Get_Config_List()
@@ -483,13 +629,45 @@ function Library:Save_Config(Name)
 		__name = Clean,
 		flags = {},
 	}
+	-- Prefer live Option Api:Get values (toggles, colors, keybinds, etc.)
 	for Flag, Opt in pairs(Library.Options) do
-		if Flag ~= "config_list" then
+		if not CONFIG_SKIP_FLAGS[Flag] then
 			local Ok, Value = pcall(function()
 				return Opt.Api:Get()
 			end)
-			if Ok then
+			if Ok and Value ~= nil then
 				Data.flags[Flag] = Serialize_Value(Opt.Type, Value)
+				-- Keep Flags mirror in sync for anything reading Library.Flags directly.
+				if Opt.Type == "Color" and Is_Color3(Value) then
+					Library.Flags[Flag] = Value
+				elseif Opt.Type ~= "Keybind" then
+					Library.Flags[Flag] = Value
+				end
+			elseif Library.Flags[Flag] ~= nil then
+				local Fallback = Library.Flags[Flag]
+				if Is_Color3(Fallback) then
+					Data.flags[Flag] = Serialize_Value("Color", Fallback)
+				elseif Type_Of(Fallback) == "table" and Fallback.Key and Fallback.Mode then
+					Data.flags[Flag] = Serialize_Value("Keybind", Fallback)
+				elseif Type_Of(Fallback) == "table" then
+					Data.flags[Flag] = Serialize_Value("MultiDropdown", Fallback)
+				else
+					Data.flags[Flag] = Fallback
+				end
+			end
+		end
+	end
+	-- Also persist any Flags that never registered an Option (or got out of sync)
+	for Flag, Value in pairs(Library.Flags) do
+		if not CONFIG_SKIP_FLAGS[Flag] and Data.flags[Flag] == nil then
+			if Is_Color3(Value) then
+				Data.flags[Flag] = Serialize_Value("Color", Value)
+			elseif Type_Of(Value) == "table" and Value.Key and Value.Mode then
+				Data.flags[Flag] = Serialize_Value("Keybind", Value)
+			elseif Type_Of(Value) == "table" then
+				Data.flags[Flag] = Serialize_Value("MultiDropdown", Value)
+			else
+				Data.flags[Flag] = Value
 			end
 		end
 	end
@@ -528,26 +706,82 @@ function Library:Load_Config(Name)
 		return false, "invalid config"
 	end
 	local Flags = Data.flags or Data
+	Library._Loading_Config = true
+
+	-- 1) Quiet baseline: toggles/multis OFF (not create-Default), other controls
+	--    to create defaults. Stops Default=true ESP/etc from turning on by themselves.
+	for Flag, Opt in pairs(Library.Options) do
+		if not CONFIG_SKIP_FLAGS[Flag] and Opt.Api and Opt.Api.Set then
+			local Baseline = Load_Baseline(Opt)
+			pcall(function()
+				Opt.Api:Set(Baseline, false)
+			end)
+		end
+	end
+
+	-- 2) Apply every saved flag (silent) — toggles, sliders, colors, dropdowns, keybinds.
 	for Flag, Value in pairs(Flags) do
-		if Flag ~= "__eggtech" and Flag ~= "__name" and Flag ~= "config_list" then
+		if Flag ~= "__eggtech" and Flag ~= "__name" and not CONFIG_SKIP_FLAGS[Flag] then
 			local Opt = Library.Options[Flag]
 			if Opt and Opt.Api and Opt.Api.Set then
 				local Val = Deserialize_Value(Opt.Type, Value)
 				pcall(function()
-					Opt.Api:Set(Val)
+					Opt.Api:Set(Val, false)
 				end)
+				-- Guarantee Flags mirror even if a control Set path skipped it.
+				if Opt.Type == "Toggle" then
+					Library.Flags[Flag] = Val == true
+				elseif Opt.Type == "Color" and Is_Color3(Val) then
+					Library.Flags[Flag] = Val
+				elseif Opt.Type == "Slider" or Opt.Type == "Input" or Opt.Type == "Dropdown" then
+					Library.Flags[Flag] = Val
+				elseif Opt.Type == "MultiDropdown" then
+					Library.Flags[Flag] = Val
+				end
+			else
+				if Type_Of(Value) == "table" and Value.R and Value.G and Value.B and not Value.Key then
+					Library.Flags[Flag] = Deserialize_Value("Color", Value)
+				else
+					Library.Flags[Flag] = Value
+				end
 			end
 		end
 	end
+
+	-- 3) Fire callbacks in priority order against the fully restored state.
+	local Ordered = {}
+	for Flag, Opt in pairs(Library.Options) do
+		if not CONFIG_SKIP_FLAGS[Flag] and Opt.Api and Opt.Api.Set and Opt.Api.Get then
+			Ordered[#Ordered + 1] = { Flag = Flag, Opt = Opt }
+		end
+	end
+	table.sort(Ordered, function(A, B)
+		local PA = Config_Callback_Priority(A.Opt.Type)
+		local PB = Config_Callback_Priority(B.Opt.Type)
+		if PA ~= PB then
+			return PA < PB
+		end
+		return tostring(A.Flag) < tostring(B.Flag)
+	end)
+	for _, Entry in ipairs(Ordered) do
+		pcall(function()
+			Entry.Opt.Api:Set(Entry.Opt.Api:Get(), true)
+		end)
+	end
+
 	if Library.Options.config_name and Library.Options.config_name.Api then
 		pcall(function()
-			Library.Options.config_name.Api:Set(Clean)
+			Library.Options.config_name.Api:Set(Clean, false)
 		end)
 	end
 	if Library.Options.config_list and Library.Options.config_list.Api then
 		pcall(function()
-			Library.Options.config_list.Api:Set(Clean)
+			Library.Options.config_list.Api:Set(Clean, false)
 		end)
+	end
+	Library._Loading_Config = false
+	if Type_Of(Library.On_Config_Loaded) == "function" then
+		pcall(Library.On_Config_Loaded, Clean)
 	end
 	return true, Clean
 end
@@ -695,6 +929,7 @@ local Icons = {
 	settings = "rbxassetid://80758916183665",
 	mouse_pointer = "rbxassetid://117093892862228",
 	pointer = "rbxassetid://92615117311099",
+	triangle = "rbxassetid://126330486745540",
 }
 
 local function Resolve_Asset(Ref)
@@ -950,6 +1185,7 @@ local function Resolve_Cursor_Image()
 end
 
 local Cursor_Image_Id = Resolve_Cursor_Image() or Icons.mouse_pointer
+Library.Cursor_Image = Cursor_Image_Id
 
 local Cursor_Root = Create("Frame", {
 	Parent = Screen_Gui,
@@ -1527,6 +1763,12 @@ local function Build_Controls(Container, Content)
 		local Default = Options.Default or false
 		local Callback = Options.Callback or function() end
 		local Order = Next_Order(Container)
+		local Indent = tonumber(Options.Indent) or 0
+		local Text_Color = Options.Text_Color
+		if not Text_Color and Options.Risky == true then
+			Text_Color = Color3.fromRGB(255, 72, 72)
+		end
+		Text_Color = Text_Color or Theme.Text
 
 		if Flag then
 			Library.Flags[Flag] = Default
@@ -1538,6 +1780,7 @@ local function Build_Controls(Container, Content)
 			Size = UDim2.new(1, -4, 0, 20),
 			LayoutOrder = Order,
 			ZIndex = 5,
+			Visible = Options.Visible ~= false,
 		})
 
 		local Box = Create("TextButton", {
@@ -1545,7 +1788,7 @@ local function Build_Controls(Container, Content)
 			BackgroundColor3 = Default and Theme.Toggle_On or Theme.Toggle_Off,
 			BorderSizePixel = 0,
 			Size = UDim2.new(0, 9, 0, 9),
-			Position = UDim2.new(0, 0, 0.5, -4),
+			Position = UDim2.new(0, Indent, 0.5, -4),
 			Text = "",
 			AutoButtonColor = false,
 			ClipsDescendants = true,
@@ -1557,11 +1800,11 @@ local function Build_Controls(Container, Content)
 		local Text_Label = Create("TextLabel", {
 			Parent = Holder,
 			BackgroundTransparency = 1,
-			Position = UDim2.new(0, 16, 0, 0),
-			Size = UDim2.new(1, -16, 1, 0),
+			Position = UDim2.new(0, 16 + Indent, 0, 0),
+			Size = UDim2.new(1, -(16 + Indent), 1, 0),
 			FontFace = Fonts.Main,
 			Text = Options.Text or Options.Name or "toggle",
-			TextColor3 = Theme.Text,
+			TextColor3 = Text_Color,
 			TextSize = 12,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			ZIndex = 6,
@@ -1570,8 +1813,8 @@ local function Build_Controls(Container, Content)
 		local Hit = Create("TextButton", {
 			Parent = Holder,
 			BackgroundTransparency = 1,
-			Position = UDim2.new(0, 14, 0, 0),
-			Size = UDim2.new(1, -14, 1, 0),
+			Position = UDim2.new(0, 14 + Indent, 0, 0),
+			Size = UDim2.new(1, -(14 + Indent), 1, 0),
 			Text = "",
 			ZIndex = 5,
 		})
@@ -1598,11 +1841,22 @@ local function Build_Controls(Container, Content)
 		end)
 
 		local Api = {}
-		function Api:Set(Val)
-			Set(Val)
+		function Api:Set(Val, Fire)
+			Set(Val, Fire)
 		end
 		function Api:Get()
 			return State
+		end
+		function Api:Set_Visible(V)
+			Holder.Visible = V and true or false
+		end
+		function Api:Set_Text(T)
+			Text_Label.Text = tostring(T or "")
+		end
+		function Api:Set_Text_Color(C)
+			if typeof(C) == "Color3" then
+				Text_Label.TextColor3 = C
+			end
 		end
 
 		-- Inline extras: pickers sit on the same row, right-aligned
@@ -1610,8 +1864,8 @@ local function Build_Controls(Container, Content)
 		local function Reserve_Inline_Slot(Width)
 			Inline_Count += 1
 			local Used = Inline_Count * (Width + 4)
-			Text_Label.Size = UDim2.new(1, -16 - Used, 1, 0)
-			Hit.Size = UDim2.new(1, -14 - Used, 1, 0)
+			Text_Label.Size = UDim2.new(1, -(16 + Indent) - Used, 1, 0)
+			Hit.Size = UDim2.new(1, -(14 + Indent) - Used, 1, 0)
 			return -Used
 		end
 
@@ -1624,7 +1878,7 @@ local function Build_Controls(Container, Content)
 			return Controls:Add_Color_Picker(Picker_Options)
 		end
 
-		Register_Option(Flag, "Toggle", Api)
+		Register_Option(Flag, "Toggle", Api, Default)
 		return Api
 	end
 
@@ -1890,13 +2144,13 @@ local function Build_Controls(Container, Content)
 		end)
 
 		local Api = {}
-		function Api:Set(Val)
-			Set(Val, true, false)
+		function Api:Set(Val, Fire)
+			Set(Val, Fire, false)
 		end
 		function Api:Get()
 			return Value
 		end
-		Register_Option(Flag, "Slider", Api)
+		Register_Option(Flag, "Slider", Api, Default)
 		return Api
 	end
 
@@ -2151,18 +2405,20 @@ local function Build_Controls(Container, Content)
 		end)
 
 		local Api = {}
-		function Api:Set(T)
+		function Api:Set(T, Fire)
 			Box.Text = tostring(T or "")
 			if Flag then
 				Library.Flags[Flag] = Box.Text
 			end
 			Sync_Display(true)
-			Callback(Box.Text)
+			if Fire ~= false then
+				Callback(Box.Text)
+			end
 		end
 		function Api:Get()
 			return Box.Text
 		end
-		Register_Option(Flag, "Input", Api)
+		Register_Option(Flag, "Input", Api, Default)
 		return Api
 	end
 
@@ -2416,7 +2672,7 @@ local function Build_Controls(Container, Content)
 		end)
 
 		local Api = {}
-		function Api:Set(Val)
+		function Api:Set(Val, Fire)
 			if Multi then
 				Selected = {}
 				for _, V in ipairs(Val or {}) do
@@ -2435,10 +2691,14 @@ local function Build_Controls(Container, Content)
 						end
 					end
 					Library.Flags[Flag] = Out
-					Callback(Out)
+					if Fire ~= false then
+						Callback(Out)
+					end
 				else
 					Library.Flags[Flag] = Selected
-					Callback(Selected)
+					if Fire ~= false then
+						Callback(Selected)
+					end
 				end
 			end
 			if Open then
@@ -2490,7 +2750,7 @@ local function Build_Controls(Container, Content)
 		function Api:Close()
 			Close()
 		end
-		Register_Option(Flag, Multi and "MultiDropdown" or "Dropdown", Api)
+		Register_Option(Flag, Multi and "MultiDropdown" or "Dropdown", Api, Default)
 		return Api
 	end
 
@@ -2939,7 +3199,7 @@ local function Build_Controls(Container, Content)
 		end)
 
 		local Api = {}
-		function Api:Set(C)
+		function Api:Set(C, Fire)
 			if Type_Of(C) == "string" then
 				local Hex = C:gsub("#", "")
 				if #Hex == 6 then
@@ -2963,7 +3223,9 @@ local function Build_Controls(Container, Content)
 			end
 			H, S, V = C:ToHSV()
 			Apply(false)
-			Callback(Color)
+			if Fire ~= false then
+				Callback(Color)
+			end
 		end
 		function Api:Get()
 			return Color
@@ -2971,7 +3233,7 @@ local function Build_Controls(Container, Content)
 		function Api:Close()
 			Close_Picker()
 		end
-		Register_Option(Flag, "Color", Api)
+		Register_Option(Flag, "Color", Api, Default)
 		return Api
 	end
 
@@ -3336,7 +3598,7 @@ local function Build_Controls(Container, Content)
 				Set_Active(false)
 			end
 		end
-		function Api:Set(Data)
+		function Api:Set(Data, Fire)
 			if Type_Of(Data) == "table" then
 				if Data.Mode then
 					Mode = Data.Mode
@@ -3359,11 +3621,15 @@ local function Build_Controls(Container, Content)
 			elseif Type_Of(Data) == "boolean" then
 				Set_Active(Data)
 			end
+			if Fire == false then
+				-- still sync flag state for Hold/Toggle without firing extra side effects
+			end
 		end
 		function Api:Get()
 			return {
 				Key = Is_Bind(Current_Key) and Bind_Name(Current_Key) or "Unknown",
 				Mode = Mode,
+				Active = Active,
 			}
 		end
 		function Api:Get_Active()
@@ -3372,7 +3638,11 @@ local function Build_Controls(Container, Content)
 		function Api:Get_Key()
 			return Current_Key
 		end
-		Register_Option(Flag, "Keybind", Api)
+		Register_Option(Flag, "Keybind", Api, {
+			Key = Is_Bind(Default) and Bind_Name(Default) or (Type_Of(Default) == "string" and Default or "Unknown"),
+			Mode = Mode,
+			Active = false,
+		})
 		return Api
 	end
 
@@ -3923,11 +4193,25 @@ local function Remove_Notification(Entry)
 		end
 	end
 
+	if Entry.Anim_Conn then
+		pcall(function()
+			Entry.Anim_Conn:Disconnect()
+		end)
+		Entry.Anim_Conn = nil
+	end
+
 	local N = Entry.Frame
 	if N and N.Parent then
 		Tween(N, { BackgroundTransparency = 1 }, 0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 		if Entry.Label then
 			Tween(Entry.Label, { TextTransparency = 1 }, 0.22)
+		end
+		if Entry.Labels then
+			for _, Label in ipairs(Entry.Labels) do
+				if Label and Label.Parent then
+					Tween(Label, { TextTransparency = 1 }, 0.22)
+				end
+			end
 		end
 		if Entry.Stroke then
 			Tween(Entry.Stroke, { Transparency = 1 }, 0.22)
@@ -3945,14 +4229,53 @@ local function Remove_Notification(Entry)
 	Layout_Notifications()
 end
 
+-- Segments: { { Text = "...", Animated = bool}, ... }
+-- Animated pieces use the brand scrolling gradient; everything else stays white.
+local function Notify_Measure(Text)
+	return TextService:GetTextSize(
+		tostring(Text or ""),
+		12,
+		Enum.Font.BuilderSansExtraBold,
+		Vector2.new(1000, 200)
+	)
+end
+
+local function Notify_Plain_Width(Text)
+	return Notify_Measure(Text).X
+end
+
+local function Notify_Segments_Width(Segments)
+	local Total = 0
+	for _, Seg in ipairs(Segments) do
+		Total += Notify_Plain_Width(Seg.Text or "")
+	end
+	return Total
+end
+
 function Library:Notify(Text, Duration)
 	Duration = Duration or 3
-	Text = tostring(Text or "")
 	Notify_Token += 1
 	local Token = Notify_Token
 
-	local Bounds = TextService:GetTextSize(Text, 12, Enum.Font.BuilderSansExtraBold, Vector2.new(380, 200))
-	local Width = math.clamp(Bounds.X + 26, 140, 420)
+	local Segments = nil
+	local Plain = nil
+	if type(Text) == "table" then
+		Segments = Text
+		local Joined = {}
+		for _, Seg in ipairs(Segments) do
+			Joined[#Joined + 1] = tostring(Seg.Text or "")
+		end
+		Plain = table.concat(Joined)
+	else
+		Plain = tostring(Text or "")
+	end
+
+	local Bounds = Notify_Measure(Plain)
+	local Width = math.clamp(
+		(Segments and Notify_Segments_Width(Segments) or Bounds.X) + 26,
+		140,
+		520
+	)
 	local Height = math.max(28, Bounds.Y + 14)
 
 	-- Squared panel, anchored to the top-right (always above UI popups)
@@ -3973,38 +4296,134 @@ function Library:Notify(Text, Duration)
 	local Bar = Accent_Bar(N, Z_NOTIFY + 2)
 	Bar.BackgroundTransparency = 1
 
-	local Label = Create("TextLabel", {
-		Parent = N,
-		BackgroundTransparency = 1,
-		Position = UDim2.new(0, 10, 0, 2),
-		Size = UDim2.new(1, -20, 1, -2),
-		FontFace = Fonts.Main,
-		Text = Text,
-		TextColor3 = Theme.Text,
-		TextTransparency = 1,
-		TextSize = 12,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		TextYAlignment = Enum.TextYAlignment.Center,
-		TextWrapped = true,
-		ZIndex = Z_NOTIFY + 1,
-	})
-
 	local Entry = {
 		Frame = N,
-		Label = Label,
 		Stroke = Edge,
 		Bar = Bar,
 		Height = Height,
 		Token = Token,
 		Removed = false,
+		Labels = {},
+		Animated = {},
 	}
+
+	local White = Color3.fromRGB(255, 255, 255)
+
+	if Segments then
+		local Row = Create("Frame", {
+			Parent = N,
+			BackgroundTransparency = 1,
+			Position = UDim2.new(0, 10, 0, 2),
+			Size = UDim2.new(1, -20, 1, -2),
+			ZIndex = Z_NOTIFY + 1,
+		})
+		Create("UIListLayout", {
+			Parent = Row,
+			FillDirection = Enum.FillDirection.Horizontal,
+			HorizontalAlignment = Enum.HorizontalAlignment.Left,
+			VerticalAlignment = Enum.VerticalAlignment.Center,
+			SortOrder = Enum.SortOrder.LayoutOrder,
+			Padding = UDim.new(0, 0),
+		})
+
+		local Order = 0
+		for _, Seg in ipairs(Segments) do
+			local Seg_Text = tostring(Seg.Text or "")
+			if Seg_Text == "" then
+				continue
+			end
+			if Seg.Animated then
+				for i = 1, #Seg_Text do
+					Order += 1
+					local Char = Seg_Text:sub(i, i)
+					local Label = Create("TextLabel", {
+						Parent = Row,
+						BackgroundTransparency = 1,
+						AutomaticSize = Enum.AutomaticSize.X,
+						Size = UDim2.new(0, 0, 1, 0),
+						FontFace = Fonts.Main,
+						Text = Char,
+						TextColor3 = Sample_Gradient((Order - 1) / math.max(#Seg_Text, 1)),
+						TextTransparency = 1,
+						TextSize = 12,
+						LayoutOrder = Order,
+						ZIndex = Z_NOTIFY + 1,
+					})
+					if Char == " " then
+						Label.AutomaticSize = Enum.AutomaticSize.None
+						Label.Size = UDim2.new(0, 4, 1, 0)
+					end
+					table.insert(Entry.Labels, Label)
+					table.insert(Entry.Animated, Label)
+				end
+			else
+				Order += 1
+				local Label = Create("TextLabel", {
+					Parent = Row,
+					BackgroundTransparency = 1,
+					AutomaticSize = Enum.AutomaticSize.X,
+					Size = UDim2.new(0, 0, 1, 0),
+					FontFace = Fonts.Main,
+					Text = Seg_Text,
+					TextColor3 = White,
+					TextTransparency = 1,
+					TextSize = 12,
+					LayoutOrder = Order,
+					ZIndex = Z_NOTIFY + 1,
+				})
+				table.insert(Entry.Labels, Label)
+			end
+		end
+
+		local Anim_Count = math.max(#Entry.Animated, 1)
+		local Acc = 0
+		Entry.Anim_Conn = Connect(RunService.Heartbeat, function(Dt)
+			if Entry.Removed then
+				return
+			end
+			Acc += Dt or 0
+			if Acc < (1 / 30) then
+				return
+			end
+			Acc = 0
+			if not N.Parent then
+				return
+			end
+			local Scroll = tick() * 0.12
+			for i, Label in ipairs(Entry.Animated) do
+				if Label.Parent then
+					Label.TextColor3 = Sample_Gradient(Scroll + (i - 1) / Anim_Count)
+				end
+			end
+		end)
+	else
+		local Label = Create("TextLabel", {
+			Parent = N,
+			BackgroundTransparency = 1,
+			Position = UDim2.new(0, 10, 0, 2),
+			Size = UDim2.new(1, -20, 1, -2),
+			FontFace = Fonts.Main,
+			Text = Plain,
+			TextColor3 = Theme.Text,
+			TextTransparency = 1,
+			TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextYAlignment = Enum.TextYAlignment.Center,
+			TextWrapped = true,
+			ZIndex = Z_NOTIFY + 1,
+		})
+		Entry.Label = Label
+		table.insert(Entry.Labels, Label)
+	end
 
 	-- New toast lands at the top; existing ones get shoved down
 	table.insert(Notify_Stack, 1, Entry)
 	Layout_Notifications()
 
 	Tween(N, { BackgroundTransparency = 0 }, 0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-	Tween(Label, { TextTransparency = 0 }, 0.28)
+	for _, Label in ipairs(Entry.Labels) do
+		Tween(Label, { TextTransparency = 0 }, 0.28)
+	end
 	Tween(Edge, { Transparency = 0 }, 0.28)
 	Tween(Bar, { BackgroundTransparency = 0 }, 0.28)
 
