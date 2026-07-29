@@ -910,6 +910,18 @@ EspLibrary = {
                 ['AnimSpeed'] = 1,
                 ['Offset'] = 10,
             },
+
+            ['Armor Bar'] = {
+                ['Enabled'] = false,
+                ['Top'] = Color3.fromRGB(30, 144, 255),
+                ['Mid'] = Color3.fromRGB(0, 200, 255),
+                ['Bot'] = Color3.fromRGB(0, 10, 80),
+                ['ScrollColors'] = false,
+                ['Animate'] = false,
+                ['Mode'] = 'None',
+                ['AnimSpeed'] = 1,
+                ['Thickness'] = 1,
+            },
         },
 
         ['Skeleton'] = {
@@ -1976,6 +1988,19 @@ function EspLibrary:InitEsp(Data, HolderParent)
             BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         })
 
+        Objects["RightBarHolder"] = self:CreateObjects("Frame", {
+            Parent = Objects["RightHolder"],
+            LayoutOrder = 0,
+            AutomaticSize = Enum.AutomaticSize.X,
+            Visible = false,
+            BackgroundTransparency = 1,
+            Position = Dim2(0, 0, 0, 0),
+            Size = Dim2(0, 0, 1, 0),
+            BorderSizePixel = 0,
+            BorderColor3 = Color3.fromRGB(0, 0, 0),
+            BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        })
+
         Objects["BottomBarHolder"] = self:CreateObjects("Frame", {
             Parent = Objects["BottomHolder"],
             LayoutOrder = 0,
@@ -2027,6 +2052,15 @@ function EspLibrary:InitEsp(Data, HolderParent)
             Parent = Objects["LeftBarHolder"],
             FillDirection = Enum.FillDirection.Horizontal,
             HorizontalAlignment = Enum.HorizontalAlignment.Right,
+            VerticalAlignment = Enum.VerticalAlignment.Top,
+            Padding = Dim(0, 5),
+            SortOrder = Enum.SortOrder.LayoutOrder,
+        })
+
+        self:CreateObjects("UIListLayout", {
+            Parent = Objects["RightBarHolder"],
+            FillDirection = Enum.FillDirection.Horizontal,
+            HorizontalAlignment = Enum.HorizontalAlignment.Left,
             VerticalAlignment = Enum.VerticalAlignment.Top,
             Padding = Dim(0, 5),
             SortOrder = Enum.SortOrder.LayoutOrder,
@@ -2095,6 +2129,11 @@ function EspLibrary:InitEsp(Data, HolderParent)
         self:CreateObjects("UIPadding", {
             Parent = Objects["LeftBarHolder"],
             PaddingRight = Dim(0, 0),
+        })
+
+        self:CreateObjects("UIPadding", {
+            Parent = Objects["RightBarHolder"],
+            PaddingLeft = Dim(0, 0),
         })
 
         self:CreateObjects("UIPadding", {
@@ -2401,6 +2440,52 @@ function EspLibrary:InitEsp(Data, HolderParent)
         })
 
         AttachTextGradient(Objects["HealthBarText"], "HealthBarText")
+    end
+
+    do
+        -- Armor Bar: mirrors HealthBar exactly (same dimensions) on the RIGHT side
+        Objects["ArmorBarOutline"] = self:CreateObjects("Frame", {
+            Parent = Objects["RightBarHolder"],
+            ZIndex = 5,
+            LayoutOrder = 0,
+            Visible = false,
+            BackgroundTransparency = 0,
+            Position = Dim2(0, 0, 0, 0),
+            Size = Dim2(0, 1, 1, 0),
+            BorderSizePixel = 0,
+            BorderColor3 = Color3.fromRGB(0, 0, 0),
+            BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+            ClipsDescendants = false,
+        })
+
+        self:CreateObjects("UIStroke", {
+            Parent = Objects["ArmorBarOutline"],
+            Thickness = 1,
+            LineJoinMode = Enum.LineJoinMode.Miter,
+        })
+
+        Objects["ArmorBar"] = self:CreateObjects("Frame", {
+            Parent = Objects["ArmorBarOutline"],
+            ZIndex = 6,
+            AnchorPoint = NewVector2(0, 1),
+            Position = Dim2(0, 0, 1, 0),
+            Size = Dim2(1, 0, 1, 0),
+            BorderSizePixel = 0,
+            BorderColor3 = Color3.fromRGB(0, 0, 0),
+            BackgroundColor3 = Color3.fromRGB(0, 100, 255),
+            ClipsDescendants = true,
+        })
+
+        Objects["ArmorBarGradient"] = self:CreateObjects("UIGradient", {
+            Parent = Objects["ArmorBar"],
+            Rotation = 90,
+            Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Table['Bars']['Armor Bar']['Top']),
+                ColorSequenceKeypoint.new(0.5, Table['Bars']['Armor Bar']['Mid']),
+                ColorSequenceKeypoint.new(1, Table['Bars']['Armor Bar']['Bot']),
+            }),
+            Transparency = NumSeq({NumKey(0, 0), NumKey(1, 0)}),
+        })
     end
 
     do
@@ -3819,6 +3904,65 @@ function EspLibrary:Update(Player, Data, ViewportCamera, ViewportFrame)
 
         if Objects['LeftBarHolder'].Visible then
             Objects['LeftBarHolder'].Visible = false
+        end
+    end
+
+    -- Armor Bar (right side of box, same thickness/height as health bar)
+    local ArmorCfg = Table['Bars']['Armor Bar']
+    local ShowArmorBar = ArmorCfg and ArmorCfg['Enabled'] == true
+
+    if ShowArmorBar then
+        local ArmorFrac = 0
+        pcall(function()
+            local Raw = Player:GetAttribute('Armor')
+            if type(Raw) == 'string' and Raw ~= '' then
+                local Ok, Tbl = pcall(HttpService.JSONDecode, HttpService, Raw)
+                if Ok and type(Tbl) == 'table' then
+                    local Hp = tonumber(Tbl.Health)
+                    if Hp and Hp > 0 then
+                        local Max = tonumber(Tbl.MaxHealth) or 100
+                        ArmorFrac = Clamp(Hp / math.max(Max, 1), 0, 1)
+                    end
+                end
+            end
+        end)
+
+        if ArmorFrac > 0 then
+            local ArmorThickness = GetBarDisplayThickness(ArmorCfg['Thickness'], ArmorFrac)
+
+            if Data['LastArmorDisplayThickness'] ~= ArmorThickness then
+                Objects['ArmorBarOutline'].Size = Dim2(0, ArmorThickness, 1, 0)
+                Data['LastArmorDisplayThickness'] = ArmorThickness
+            end
+
+            if not Objects['RightBarHolder'].Visible then
+                Objects['RightBarHolder'].Visible = true
+            end
+
+            if not Objects['ArmorBarOutline'].Visible then
+                Objects['ArmorBarOutline'].Visible = true
+            end
+
+            if not Objects['ArmorBar'].Visible then
+                Objects['ArmorBar'].Visible = true
+            end
+
+            Objects['ArmorBar'].Size = Dim2(1, 0, ArmorFrac, 0)
+            ApplyHealthBarGradient(Objects['ArmorBarGradient'], ArmorCfg)
+        else
+            if Objects['ArmorBarOutline'].Visible then
+                Objects['ArmorBarOutline'].Visible = false
+            end
+            if Objects['RightBarHolder'].Visible then
+                Objects['RightBarHolder'].Visible = false
+            end
+        end
+    else
+        if Objects['ArmorBarOutline'] and Objects['ArmorBarOutline'].Visible then
+            Objects['ArmorBarOutline'].Visible = false
+        end
+        if Objects['RightBarHolder'] and Objects['RightBarHolder'].Visible then
+            Objects['RightBarHolder'].Visible = false
         end
     end
 
